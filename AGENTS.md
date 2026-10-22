@@ -61,6 +61,22 @@ UPDATE_GOLDEN=1 python -m pytest tests/test_golden.py     # uppdatera golden-fil
 - **Inga mockar.** Testerna kör riktig pandas/openpyxl mot temporära filer.
 - **Golden-filen är ett kontrakt.** Ändrar du den måste diffen förklaras.
 
+## Ta emot nya filer från användaren
+
+Uppladdning till samtalet kräver att sökvägen ligger innanför arbetskatalogen
+`/workspace/project`. Ligger den utanför svarar servern 422 med "path must be
+inside the conversation workspace". Be användaren ladda upp till
+`data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
+
+Inventera uppladdade filer utan att skriva något:
+
+```bash
+python scripts/inspect_uploads.py data/inbox
+python scripts/inspect_uploads.py data/inbox --reference data/customers.xlsx
+```
+
+Verktyget listar flikar, profilerar kolumner och skriver utkast till spec-poster.
+
 ## Kända fallgropar
 
 - Sökvägar i specen tolkas relativt `config/`, inte arbetskatalogen.
@@ -72,3 +88,5 @@ UPDATE_GOLDEN=1 python -m pytest tests/test_golden.py     # uppdatera golden-fil
   med att flagga.
 - YAML 1.1 tolkar nyckeln `on:` som boolean `True`. Specen använder `to`/`via`,
   så problemet är borta, men skriv inte `on:` i nya YAML-filer.
+- Uppladdade filer måste hamna under `/workspace/project`, annars 422. Lägg dem
+  i `data/inbox/` och kör `scripts/inspect_uploads.py`.
