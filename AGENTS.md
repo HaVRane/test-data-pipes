@@ -83,6 +83,26 @@ python scripts/inspect_uploads.py data/inbox --reference data/customers.xlsx
 
 Verktyget listar flikar, profilerar kolumner och skriver utkast till spec-poster.
 
+## Ändringslogg för datakällor
+
+`watch` upptäcker om en källa lagts till, ändrats eller tagits bort, och skriver
+det till `state/changelog.ndjson` med tidsstämpel (UTC). `log` visar historiken.
+
+```bash
+python -m excel_merge.cli watch --spec config/relations.yaml
+python -m excel_merge.cli log
+```
+
+Fingeravtrycket hashar **cellvärdena**, inte filen. Excel skriver om filarkivet
+vid varje sparning utan att datan ändras; en filhash skulle larma varje gång
+någon öppnar filen. Se `docs/andringslogg.md`.
+
+Två filer: `state/changelog.ndjson` (läsbar historik, append-only) och
+`state/sources.json` (senast kända fingeravtryck). `state/` är gitignorerad.
+
+Viktigt för agenter: lägg aldrig affärslogik i `watch`. Den beskriver att något
+ändrats, inte om ändringen är önskvärd. Domen ligger i testerna.
+
 ## Kända fallgropar
 
 - Sökvägar i specen tolkas relativt `config/`, inte arbetskatalogen.
@@ -96,6 +116,11 @@ Verktyget listar flikar, profilerar kolumner och skriver utkast till spec-poster
   så problemet är borta, men skriv inte `on:` i nya YAML-filer.
 - Uppladdade filer måste hamna under `/workspace/project`, annars 422. Lägg dem
   i `data/inbox/` och kör `scripts/inspect_uploads.py`.
+- `watch` kräver en giltig spec. Tar man bort en källa som ett bygge fortfarande
+  pekar på avvisas specen innan loggning sker. Ta bort källan ur bygget först.
+- Fingeravtrycket normaliserar `1`/`1.0` och `42`/"42" till samma värde. Ändra
+  inte normaliseringen utan att lägga ett test - annars fylls loggen av falska
+  ändringar.
 - Kopplingsförslag (`joins.rank_join_candidates`) väger unikhet och namnledtrådar
   tyngre än täckning. En datumkolumn med identiska värden över båda tabellerna
   får 100 % täckning men är inte en nyckel. Lita inte på täckning ensam.

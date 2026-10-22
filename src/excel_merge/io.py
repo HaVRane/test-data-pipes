@@ -21,8 +21,18 @@ class SourceReadError(RuntimeError):
     """En källa kunde inte läsas som förväntat."""
 
 
-def read_sheet(source, base_dir: Path) -> pd.DataFrame:
-    path = source.path if source.path.is_absolute() else (base_dir / source.path).resolve()
+def resolve_source_path(source, base_dir: Path) -> Path:
+    """Sökvägen till källans fil, absolut."""
+    return source.path if source.path.is_absolute() else (base_dir / source.path).resolve()
+
+
+def read_raw_sheet(source, base_dir: Path) -> pd.DataFrame:
+    """Läs hela fliken utan projektion eller typning.
+
+    Används för att upptäcka ändringar i källan, eftersom även kolumner som
+    specen inte använder ingår i jämförelsen.
+    """
+    path = resolve_source_path(source, base_dir)
     if not path.is_file():
         raise SourceReadError(f"källan '{source.name}': filen hittades inte: {path}")
 
@@ -36,6 +46,11 @@ def read_sheet(source, base_dir: Path) -> pd.DataFrame:
         ) from exc
 
     df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def read_sheet(source, base_dir: Path) -> pd.DataFrame:
+    df = read_raw_sheet(source, base_dir)
 
     missing = [c for c in source.required_input_columns if c not in df.columns]
     if missing:
