@@ -22,6 +22,7 @@ CUSTOMERS = pd.DataFrame(
 # Unik kund per orderrad (many_to_one) + en order för okänd kund (id 5).
 ORDERS = pd.DataFrame(
     {
+        "order_id": [101, 102, 103, 104],
         "customer_id": [1, 2, 4, 5],
         "amount": [100.5, 200.0, 75.25, 999.0],
         "order_date": pd.to_datetime(["2024-01-05", "2024-01-10", "2024-03-15", "2024-03-20"]),

@@ -1,6 +1,6 @@
 """Config-driven sammanslagning av Excel-flikar."""
 
-from excel_merge.config import PipelineConfig, SourceConfig, load_config
-from excel_merge.pipeline import run_pipeline
+from excel_merge.engine import BuildResult, execute_build
+from excel_merge.relations import RelationSpec, load_relation_spec
 
-__all__ = ["PipelineConfig", "SourceConfig", "load_config", "run_pipeline"]
+__all__ = ["BuildResult", "RelationSpec", "execute_build", "load_relation_spec"]

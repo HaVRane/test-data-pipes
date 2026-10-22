@@ -1,5 +1,0 @@
-customer_id,customer_name,segment,order_amount,order_date
-1,Acme AB,Enterprise,100.5,2024-01-05
-2,Beta KB,SMB,200.0,2024-01-10
-3,Gamma HB,SMB,,
-4,Delta AB,Enterprise,75.25,2024-03-15

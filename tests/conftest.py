@@ -30,6 +30,7 @@ sources:
       customer_id: int
       amount: float
     columns:
+      order_id: order_id
       customer_id: customer_id
       amount: order_amount
       order_date: order_date
@@ -40,7 +41,7 @@ join:
 output:
   path: {output}
   sheet: Merged
-  columns: [customer_id, customer_name, segment, order_amount, order_date]
+  columns: [order_id, customer_id, customer_name, segment, order_amount, order_date]
 """
 
 

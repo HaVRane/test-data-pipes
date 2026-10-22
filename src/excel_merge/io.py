@@ -2,6 +2,10 @@
 
 Allt I/O går genom dessa funktioner. Det gör att testerna kan arbeta mot
 temporära filer utan att känna till pandas detaljer.
+
+read_sheet tar emot vad som helst med attributen path, sheet, name,
+required_input_columns, columns och dtypes - både SourceSpec och enklare
+testdubblar. Det håller I/O-lagret fritt från relationsmodellen.
 """
 
 from __future__ import annotations
@@ -10,14 +14,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from excel_merge.config import OutputConfig, SourceConfig
+from excel_merge.config import OutputConfig
 
 
 class SourceReadError(RuntimeError):
     """En källa kunde inte läsas som förväntat."""
 
 
-def read_sheet(source: SourceConfig, base_dir: Path) -> pd.DataFrame:
+def read_sheet(source, base_dir: Path) -> pd.DataFrame:
     path = source.path if source.path.is_absolute() else (base_dir / source.path).resolve()
     if not path.is_file():
         raise SourceReadError(f"källan '{source.name}': filen hittades inte: {path}")

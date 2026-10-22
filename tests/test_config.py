@@ -1,83 +1,82 @@
-"""Tester för konfigurationsvalidering - snabba, ingen Excel inblandad."""
+"""Tester för relationsspecens validering."""
 
 from __future__ import annotations
 
 import pytest
 
-from excel_merge.config import ConfigError, load_config
+from excel_merge.relations import RelationSpecError, load_relation_spec
 
 VALID = """\
+entities:
+  customer: {key: customer_id}
+  order: {key: order_id}
 sources:
-  - name: a
-    path: a.xlsx
+  - name: customers
+    path: c.xlsx
     sheet: S
-    columns: {id: id}
+    entity: customer
+    columns: {customer_id: customer_id}
+  - name: orders
+    path: o.xlsx
+    sheet: S
+    entity: order
+    columns: {order_id: order_id, customer_id: customer_id}
+    relationships:
+      - to: customer
+        via: customer_id
+builds:
   - name: b
-    path: b.xlsx
-    sheet: S
-    columns: {id: id}
-join:
-  on: [id]
-output:
-  path: out.xlsx
-  sheet: Out
+    base: customer
+    include: [order]
+    output: out.xlsx
+    sheet: Out
 """
 
 
-def _write(tmp_path, text: str):
-    path = tmp_path / "c.yaml"
+def _write(tmp_path, text):
+    path = tmp_path / "r.yaml"
     path.write_text(text, encoding="utf-8")
     return path
 
 
-def test_loads_valid_config(tmp_path):
-    config = load_config(_write(tmp_path, VALID))
-    assert [s.name for s in config.sources] == ["a", "b"]
-    assert config.join.how == "left"
-    assert config.version == 1
+def test_loads_valid_spec(tmp_path):
+    spec = load_relation_spec(_write(tmp_path, VALID))
+    assert [s.name for s in spec.sources] == ["customers", "orders"]
+    assert spec.version == 1
+    assert spec.builds[0].name == "b"
 
 
 def test_rejects_missing_file(tmp_path):
-    with pytest.raises(ConfigError, match="hittades inte"):
-        load_config(tmp_path / "nope.yaml")
-
-
-def test_rejects_single_source(tmp_path):
-    one = VALID.replace(
-        "  - name: b\n    path: b.xlsx\n    sheet: S\n    columns: {id: id}\n", ""
-    )
-    with pytest.raises(ConfigError, match="minst två källor"):
-        load_config(_write(tmp_path, one))
+    with pytest.raises(RelationSpecError, match="hittades inte"):
+        load_relation_spec(tmp_path / "nope.yaml")
 
 
 def test_rejects_duplicate_source_names(tmp_path):
-    dup = VALID.replace("name: b", "name: a")
-    with pytest.raises(ConfigError, match="unika"):
-        load_config(_write(tmp_path, dup))
+    dup = VALID.replace("name: orders", "name: customers")
+    with pytest.raises(RelationSpecError, match="unika"):
+        load_relation_spec(_write(tmp_path, dup))
 
 
-def test_rejects_unknown_join_key(tmp_path):
-    bad = VALID.replace("on: [id]", "on: [saknas]")
-    with pytest.raises(ConfigError, match="nyckelkolumn"):
-        load_config(_write(tmp_path, bad))
+def test_rejects_source_without_columns(tmp_path):
+    bad = VALID.replace("    columns: {customer_id: customer_id}\n", "")
+    with pytest.raises(RelationSpecError, match="columns"):
+        load_relation_spec(_write(tmp_path, bad))
 
 
-def test_rejects_bad_join_how(tmp_path):
-    bad = VALID.replace("join:\n", "join:\n  how: sideways\n").replace("  on: [id]", "  on: [id]")
-    with pytest.raises(ConfigError, match="join.how"):
-        load_config(_write(tmp_path, bad))
+def test_rejects_build_with_empty_include(tmp_path):
+    bad = VALID.replace("    include: [order]", "    include: []")
+    with pytest.raises(RelationSpecError, match="include"):
+        load_relation_spec(_write(tmp_path, bad))
 
 
-def test_rejects_unknown_output_column(tmp_path):
-    bad = VALID + "  columns: [id, fantomkolumn]\n"
-    with pytest.raises(ConfigError, match="produceras"):
-        load_config(_write(tmp_path, bad))
+def test_rejects_missing_entity_section(tmp_path):
+    bad = VALID.replace("entities:\n  customer: {key: customer_id}\n  order: {key: order_id}\n", "")
+    with pytest.raises(RelationSpecError, match="entities"):
+        load_relation_spec(_write(tmp_path, bad))
 
 
-def test_rejects_dtype_for_unknown_column(tmp_path):
-    bad = VALID.replace(
-        "    columns: {id: id}\n  - name: b",
-        "    columns: {id: id}\n    dtypes: {fel: int}\n  - name: b",
-    )
-    with pytest.raises(ConfigError, match="dtypes"):
-        load_config(_write(tmp_path, bad))
+def test_defaults_are_applied(tmp_path):
+    spec = load_relation_spec(_write(tmp_path, VALID))
+    rel = spec.sources[1].relationships[0]
+    assert rel.cardinality == "many_to_one"
+    assert rel.orphans == "keep"
