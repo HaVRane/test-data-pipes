@@ -192,3 +192,49 @@ def test_state_file_records_first_seen(spec_file, tmp_path):
     state = json.loads((tmp_path / "state" / "sources.json").read_text(encoding="utf-8"))
     assert state["sources"]["customers"]["first_seen"] == "2026-01-01T00:00:00+00:00"
     assert state["sources"]["customers"]["rows"] == 2
+
+
+def test_watch_reports_missing_file_without_crashing(spec_file, tmp_path, capsys):
+    """Tar man bort en källfil ska bevakningen säga det, inte krascha.
+
+    Detta är hela poängen med bevakningen: att upptäcka att en källa försvunnit.
+    """
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    capsys.readouterr()
+
+    (tmp_path / "customers.xlsx").unlink()
+
+    assert _watch(spec_file, tmp_path, "--timestamp", "t2") == 0
+    out = capsys.readouterr().out
+    assert "customers kunde inte läsas" in out
+    # Övriga källor ska inte ha påverkats
+    assert "orders" not in out.replace("customers kunde inte läsas", "")
+
+
+def test_watch_logs_missing_file_as_unreadable_event(spec_file, tmp_path):
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    (tmp_path / "customers.xlsx").unlink()
+    _watch(spec_file, tmp_path, "--timestamp", "t2")
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "state" / "log.ndjson").read_text(encoding="utf-8").splitlines()
+    ]
+    unreadable = [e for e in events if e["event"] == "source_unreadable"]
+    assert [e["source"] for e in unreadable] == ["customers"]
+    assert "hittades inte" in unreadable[0]["error"]
+
+
+def test_restored_file_is_reported_as_recovered_not_as_new(spec_file, tmp_path, capsys):
+    """En fil som kommer tillbaka ska sägas vara läsbar igen, inte bli en ny källa."""
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    backup = (tmp_path / "customers.xlsx").read_bytes()
+    (tmp_path / "customers.xlsx").unlink()
+    _watch(spec_file, tmp_path, "--timestamp", "t2")
+    capsys.readouterr()
+
+    (tmp_path / "customers.xlsx").write_bytes(backup)
+    _watch(spec_file, tmp_path, "--timestamp", "t3")
+    out = capsys.readouterr().out
+    assert "customers läsbar igen" in out
+    assert "tillagd" not in out

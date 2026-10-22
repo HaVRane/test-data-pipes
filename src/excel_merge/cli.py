@@ -14,44 +14,28 @@ import json
 import sys
 from pathlib import Path
 
-from excel_merge.changelog import (
-    ChangeLog,
-    detect_changes,
-    next_state,
-    utc_now,
-)
+from excel_merge.changelog import ChangeLog
 from excel_merge.config import ConfigError
 from excel_merge.engine import BuildError, execute_build
-from excel_merge.fingerprint import fingerprint_frame
-from excel_merge.io import SourceReadError, read_raw_sheet, read_sheet
+from excel_merge.io import SourceReadError, read_sheet
 from excel_merge.profile import discover_candidate_keys, format_comparison, suggest_spec_entry
 from excel_merge.relations import RelationSpecError, build_plan, load_relation_spec
+from excel_merge.watch import run_watch
 
 DEFAULT_LOG = "state/changelog.ndjson"
 DEFAULT_STATE = "state/sources.json"
 
 
-def _fingerprints(spec) -> dict[str, dict]:
-    """Fingeravtryck för varje källa, läst från hela fliken."""
-    result: dict[str, dict] = {}
-    for source in spec.sources:
-        frame = read_raw_sheet(source, spec.base_dir)
-        result[source.name] = fingerprint_frame(frame).as_dict()
-    return result
-
-
 def _cmd_watch(args: argparse.Namespace) -> int:
     """Upptäck ändringar i datat och skriv dem till loggen."""
     spec = load_relation_spec(args.spec)
-    log = ChangeLog(args.log, args.state, verbose=args.verbose)
-    timestamp = args.timestamp or utc_now()
-
-    current = _fingerprints(spec)
-    state = log.load_state()
-    events = detect_changes(current, state, timestamp, verbose=args.verbose)
-
-    written = log.append(events)
-    log.save_state(next_state(current, state, timestamp))
+    events = run_watch(
+        spec,
+        args.log,
+        args.state,
+        timestamp=args.timestamp,
+        verbose=args.verbose,
+    )
 
     if not events:
         print("Inga ändringar sedan förra körningen.")
@@ -61,7 +45,7 @@ def _cmd_watch(args: argparse.Namespace) -> int:
         if event.event == "source_unchanged" and not args.verbose:
             continue
         print(event.describe())
-    print(f"\n{written} händelse(r) skrivna till {log.log_path}")
+    print(f"\n{len(events)} händelse(r) skrivna till {args.log}")
     return 0
 
 
@@ -88,13 +72,20 @@ def _cmd_log(args: argparse.Namespace) -> int:
         elif kind == "source_removed":
             detail = f"senast {event.get('last_seen', '?')}"
         elif kind == "source_changed":
-            detail = (
-                f"{event.get('rows_before')} -> {event.get('rows')} rader"
-                f", {event.get('fingerprint_before')} -> {event.get('fingerprint_after')}"
-            )
+            if event.get("rows_before") is None:
+                detail = f"läsbar igen, {event.get('rows', '?')} rader"
+            else:
+                detail = (
+                    f"{event.get('rows_before')} -> {event.get('rows')} rader"
+                    f", {event.get('fingerprint_before')} -> {event.get('fingerprint_after')}"
+                )
+        elif kind == "source_unreadable":
+            detail = event.get("error", "okänt fel")
+        elif kind == "source_recovered":
+            detail = f"läsbar igen, {event.get('rows', '?')} rader"
         else:
             detail = f"{event.get('rows', '?')} rader"
-        print(f"{stamp}  {kind:<16} {source:<24} {detail}")
+        print(f"{stamp}  {kind:<18} {source:<24} {detail}")
     return 0
 
 
@@ -181,8 +172,14 @@ def main(argv: list[str] | None = None) -> int:
     log_cmd = sub.add_parser("log", help="visa ändringsloggen")
     log_cmd.add_argument("--log", type=Path, default=Path(DEFAULT_LOG), help=f"loggfil (default: {DEFAULT_LOG})")
     log_cmd.add_argument("--state", type=Path, default=Path(DEFAULT_STATE))
-    log_cmd.add_argument("--event", choices=["source_added", "source_removed", "source_changed", "source_unchanged"],
-                         help="visa bara denna händelsetyp")
+    log_cmd.add_argument(
+        "--event",
+        choices=[
+            "source_added", "source_removed", "source_changed",
+            "source_unchanged", "source_unreadable", "source_recovered",
+        ],
+        help="visa bara denna händelsetyp",
+    )
     log_cmd.add_argument("--source", help="visa bara denna källa")
     log_cmd.add_argument("--limit", type=int, default=0, help="visa bara de N senaste")
     log_cmd.set_defaults(handler=_cmd_log)

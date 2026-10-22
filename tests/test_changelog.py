@@ -166,3 +166,123 @@ def test_event_describe_is_readable():
     assert "borttagen" in removed.describe()
     changed = ChangeEvent("t", CHANGED, "orders", {"rows_before": 4, "rows": 6})
     assert "4 -> 6" in changed.describe()
+
+
+def test_unreadable_source_is_reported_not_removed():
+    """En källa som inte gick att läsa är inte samma sak som en borttagen källa."""
+    state = {"sources": {"trasig": {**fp("sha256:aaa"), "last_seen": "igår"}}}
+    events = detect_changes({}, state, "nu", unreadable={"trasig": "filen hittades inte"})
+    assert [e.event for e in events] == ["source_unreadable"]
+    assert events[0].details["error"] == "filen hittades inte"
+    assert events[0].details["known"] is True
+
+
+def test_unreadable_source_does_not_hide_other_sources():
+    """En trasig källa ska inte tysta de andra."""
+    state = {"sources": {"trasig": fp("sha256:aaa"), "frisk": fp("sha256:bbb")}}
+    events = detect_changes(
+        {"frisk": fp("sha256:ccc")}, state, "nu", unreadable={"trasig": "fel"}
+    )
+    kinds = {e.source: e.event for e in events}
+    assert kinds == {"trasig": "source_unreadable", "frisk": "source_changed"}
+
+
+def test_unreadable_source_is_not_reported_as_removed():
+    state = {"sources": {"trasig": fp("sha256:aaa")}}
+    events = detect_changes({}, state, "nu", unreadable={"trasig": "fel"})
+    assert "source_removed" not in [e.event for e in events]
+
+
+def test_unreadable_source_keeps_last_known_fingerprint():
+    """Ett tillfälligt läsproblem får inte radera historiken."""
+    state = {"sources": {"trasig": {**fp("sha256:aaa", rows=7), "first_seen": "första"}}}
+    new = next_state({}, state, "nu", unreadable={"trasig": "fel"})
+    entry = new["sources"]["trasig"]
+    assert entry["fingerprint"] == "sha256:aaa"
+    assert entry["rows"] == 7
+    assert entry["first_seen"] == "första"
+    assert entry["unreadable_at"] == "nu"
+
+
+def test_source_returning_after_unreadable_is_reported_as_recovered():
+    """Kommer filen tillbaka ska det synas, men inte som en ny källa.
+
+    Utan denna händelse skulle loggens sista rad påstå att källan fortfarande
+    är trasig, trots att den är frisk.
+    """
+    state = {"sources": {"k": {**fp("sha256:aaa"), "first_seen": "första"}}}
+    after_error = next_state({}, state, "t1", unreadable={"k": "fel"})
+    events = detect_changes({"k": fp("sha256:aaa")}, after_error, "t2")
+    assert [e.event for e in events] == ["source_recovered"]
+    assert events[0].details["error_before"] == "fel"
+
+
+def test_recovery_does_not_look_like_a_new_source():
+    state = {"sources": {"k": {**fp("sha256:aaa"), "first_seen": "första"}}}
+    after_error = next_state({}, state, "t1", unreadable={"k": "fel"})
+    events = detect_changes({"k": fp("sha256:aaa")}, after_error, "t2")
+    assert "source_added" not in [e.event for e in events]
+
+
+def test_source_changed_while_unreadable_is_detected_on_return():
+    """Ändras filen medan den är oläsbar ska både återkomst och ändring synas."""
+    state = {"sources": {"k": fp("sha256:aaa")}}
+    after_error = next_state({}, state, "t1", unreadable={"k": "fel"})
+    events = detect_changes({"k": fp("sha256:bbb")}, after_error, "t2")
+    assert [e.event for e in events] == ["source_recovered", "source_changed"]
+
+
+def test_never_read_source_is_marked_as_known_false():
+    events = detect_changes({}, {"sources": {}}, "nu", unreadable={"ny": "fel"})
+    assert events[0].details["known"] is False
+    assert events[0].event == "source_unreadable"
+
+
+def test_unreadable_event_describe_is_readable():
+    event = ChangeEvent("t", "source_unreadable", "orders", {"error": "filen hittades inte"})
+    assert "orders" in event.describe()
+    assert "kunde inte läsas" in event.describe()
+
+
+def test_repeated_unreadable_is_logged_only_once():
+    """En fil som ligger borta länge ska inte fylla loggen med dubbletter."""
+    state = {"sources": {"trasig": fp("sha256:aaa")}}
+    first = detect_changes({}, state, "t1", unreadable={"trasig": "filen hittades inte"})
+    assert [e.event for e in first] == ["source_unreadable"]
+
+    # Andra körningen: samma fel. Ingen ny händelse.
+    after = next_state({}, state, "t1", unreadable={"trasig": "filen hittades inte"})
+    second = detect_changes({}, after, "t2", unreadable={"trasig": "filen hittades inte"})
+    assert second == []
+
+
+def test_changed_error_message_is_a_new_event():
+    state = {"sources": {"trasig": fp("sha256:aaa")}}
+    after = next_state({}, state, "t1", unreadable={"trasig": "filen hittades inte"})
+    events = detect_changes({}, after, "t2", unreadable={"trasig": "fliken finns inte"})
+    assert [e.event for e in events] == ["source_unreadable"]
+    assert events[0].details["error"] == "fliken finns inte"
+
+
+def test_unreadable_error_is_cleared_when_source_returns():
+    state = {"sources": {"k": fp("sha256:aaa")}}
+    broken = next_state({}, state, "t1", unreadable={"k": "fel"})
+    assert "unreadable_error" in broken["sources"]["k"]
+
+    healed = next_state({"k": fp("sha256:aaa")}, broken, "t2")
+    assert "unreadable_error" not in healed["sources"]["k"]
+    assert "unreadable_at" not in healed["sources"]["k"]
+
+
+def test_never_read_source_becoming_readable_is_described_clearly():
+    """En källa som aldrig hunnit läsas ska säga 'läsbar igen', inte 'None -> 4'."""
+    event = ChangeEvent("t", CHANGED, "orders", {"rows_before": None, "rows": 4})
+    text = event.describe()
+    assert "läsbar igen" in text
+    assert "None" not in text
+
+
+def test_recovered_event_describe_is_readable():
+    event = ChangeEvent("t", "source_recovered", "orders", {"rows": 4})
+    assert "orders" in event.describe()
+    assert "läsbar igen" in event.describe()

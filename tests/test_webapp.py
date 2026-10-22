@@ -19,10 +19,17 @@ from webapp import (  # noqa: E402
 from fixtures import build_sample_sources, write_workbook
 
 
-def test_page_has_three_tabs_and_valid_markup():
+def test_page_has_four_tabs_and_valid_markup():
     assert "{{" not in PAGE and "}}" not in PAGE
-    for tab in ("Ladda upp", "Indata", "Kolumner och koppling"):
+    for tab in ("Ladda upp", "Indata", "Kolumner och koppling", "Ändringslogg"):
         assert tab in PAGE
+
+
+def test_page_has_changelog_tab_wiring():
+    assert 'data-tab="changelog"' in PAGE
+    assert 'id="changelog"' in PAGE
+    assert "loadChangelog" in PAGE
+    assert 'id="watchButton"' in PAGE
 
 
 def test_safe_name_still_rejects_traversal_and_bad_types():
@@ -141,3 +148,15 @@ def test_spec_entry_uses_entity_name_not_file_path():
 
     assert _entity_name("Vattenkraft/Vattenkraftverk") == "vattenkraftverk"
     assert _entity_name("Samverkan/Samverkansprocesser") == "samverkansprocesser"
+
+
+def test_changelog_renders_event_count_and_keeps_watch_status_separate():
+    """Statusraden ägs av knappen och får inte skrivas över av tabellrenderingen."""
+    assert 'id="watchStatus"' in PAGE
+    assert "av ${events.length} händelse(r)" in PAGE
+
+
+def test_changelog_tab_knows_all_event_types():
+    for event in ("source_added", "source_changed", "source_removed",
+                  "source_unchanged", "source_unreadable", "source_recovered"):
+        assert event in PAGE, event

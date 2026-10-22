@@ -44,6 +44,10 @@ def read_raw_sheet(source, base_dir: Path) -> pd.DataFrame:
             f"källan '{source.name}': fliken '{source.sheet}' finns inte i {path.name}. "
             f"Tillgängliga flikar: {available}"
         ) from exc
+    except Exception as exc:  # trasig eller felformad fil ska bli ett läsbart fel
+        raise SourceReadError(
+            f"källan '{source.name}': kunde inte läsas ({type(exc).__name__}: {exc})"
+        ) from exc
 
     df.columns = [str(c).strip() for c in df.columns]
     return df

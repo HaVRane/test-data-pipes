@@ -33,8 +33,10 @@ ADDED = "source_added"
 REMOVED = "source_removed"
 CHANGED = "source_changed"
 UNCHANGED = "source_unchanged"
+UNREADABLE = "source_unreadable"
+RECOVERED = "source_recovered"
 
-EVENT_TYPES = (ADDED, REMOVED, CHANGED, UNCHANGED)
+EVENT_TYPES = (ADDED, REMOVED, CHANGED, UNCHANGED, UNREADABLE, RECOVERED)
 
 # Hur mycket av fingeravtrycket som visas i loggen. Tillräckligt för att skilja
 # två versioner åt, kort nog att loggen förblir läsbar.
@@ -71,6 +73,9 @@ class ChangeEvent:
             return f"- {self.source} borttagen (senast {self.details.get('last_seen', '?')})"
         if self.event == CHANGED:
             parts = []
+            if self.details.get("rows_before") is None:
+                # Källan var oläsbar förra körningen; nu går den att läsa igen.
+                return f"~ {self.source} läsbar igen ({self.details.get('rows', '?')} rader)"
             if self.details.get("rows_before") != self.details.get("rows"):
                 parts.append(f"{self.details.get('rows_before')} -> {self.details.get('rows')} rader")
             added = self.details.get("columns_added") or []
@@ -82,6 +87,10 @@ class ChangeEvent:
             if not parts:
                 parts.append("innehållet har ändrats")
             return f"~ {self.source} ändrad ({'; '.join(parts)})"
+        if self.event == UNREADABLE:
+            return f"! {self.source} kunde inte läsas ({self.details.get('error', 'okänt fel')})"
+        if self.event == RECOVERED:
+            return f"✓ {self.source} läsbar igen ({self.details.get('rows', '?')} rader)"
         return f"= {self.source} oförändrad"
 
 
@@ -167,18 +176,37 @@ def detect_changes(
     state: dict[str, Any],
     timestamp: str,
     verbose: bool = False,
+    unreadable: dict[str, str] | None = None,
 ) -> list[ChangeEvent]:
     """Jämför nuvarande fingeravtryck mot tillståndet och beskriv skillnaderna.
 
     ``current`` är källnamn -> fingeravtryck (som dict). ``state`` är det
-    sparade tillståndet med senast kända fingeravtryck.
+    sparade tillståndet med senast kända fingeravtryck. ``unreadable`` är
+    källor som finns i specen men inte gick att läsa, med felmeddelandet.
+
+    En källa som inte gick att läsa rapporteras som ``source_unreadable`` i
+    stället för att avbryta hela körningen. Annars kunde bevakningen aldrig
+    rapportera det mest intressanta av allt: att en källa försvunnit.
     """
     known: dict[str, Any] = dict(state.get("sources") or {})
+    unreadable = unreadable or {}
     events: list[ChangeEvent] = []
 
     for name in sorted(current):
         after = current[name]
         before = known.get(name)
+        if before is not None and before.get("unreadable_error"):
+            # Källan gick inte att läsa förra körningen men gör det nu. Det ska
+            # synas, annars påstår loggens sista rad att källan fortfarande är
+            # trasig. Händelsen utfärdas även om innehållet är oförändrat.
+            events.append(
+                ChangeEvent(
+                    timestamp,
+                    RECOVERED,
+                    name,
+                    {"rows": after.get("rows"), "error_before": before.get("unreadable_error")},
+                )
+            )
         if before is None:
             events.append(
                 ChangeEvent(timestamp, ADDED, name, {"rows": after.get("rows"), "columns": list(after.get("columns") or [])})
@@ -188,7 +216,18 @@ def detect_changes(
         elif verbose:
             events.append(ChangeEvent(timestamp, UNCHANGED, name, {"rows": after.get("rows")}))
 
-    for name in sorted(set(known) - set(current)):
+    for name in sorted(unreadable):
+        before = known.get(name) or {}
+        # Logga bara övergången till oläsbar, inte varje körning medan felet
+        # består. Annars fylls loggen av dubbletter om en fil ligger borta
+        # länge. Ett ändrat felmeddelande är däremot en ny händelse.
+        if before.get("unreadable_error") == unreadable[name]:
+            continue
+        events.append(
+            ChangeEvent(timestamp, UNREADABLE, name, {"error": unreadable[name], "known": name in known})
+        )
+
+    for name in sorted(set(known) - set(current) - set(unreadable)):
         events.append(
             ChangeEvent(timestamp, REMOVED, name, {"last_seen": known[name].get("last_seen", "okänt")})
         )
@@ -200,9 +239,17 @@ def next_state(
     current: dict[str, dict[str, Any]],
     state: dict[str, Any],
     timestamp: str,
+    unreadable: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Bygg det nya tillståndet: källor som finns nu, med tidpunkt för senaste ändring."""
+    """Bygg det nya tillståndet: källor som finns nu, med tidpunkt för senaste ändring.
+
+    Källor som inte gick att läsa behåller sitt senaste kända fingeravtryck och
+    märks med ``unreadable_at``. Att tappa dem vore fel: ett tillfälligt
+    läsproblem skulle då radera historiken, och när filen kom tillbaka skulle
+    den felaktigt rapporteras som helt ny.
+    """
     previous = dict(state.get("sources") or {})
+    unreadable = unreadable or {}
     sources: dict[str, Any] = {}
 
     for name, fingerprint in current.items():
@@ -217,6 +264,16 @@ def next_state(
             entry["last_changed"] = timestamp
         elif "last_changed" in previous.get(name, {}):
             entry["last_changed"] = previous[name]["last_changed"]
+        sources[name] = entry
+
+    for name in sorted(unreadable):
+        entry = dict(previous.get(name) or {})
+        if not entry:
+            # Aldrig läst: vi vet att källan finns i specen men inget om innehållet.
+            entry = {"fingerprint": None, "rows": None, "columns": [], "first_seen": timestamp}
+        entry["last_seen"] = timestamp
+        entry["unreadable_at"] = timestamp
+        entry["unreadable_error"] = unreadable[name]
         sources[name] = entry
 
     return {"version": 1, "sources": sources, "updated_at": timestamp}

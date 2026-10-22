@@ -23,7 +23,21 @@ from excel_merge.profile import KeyComparison, compare_keys
 _ID_HINTS = ("id", "nr", "nummer", "kod", "code", "nyckel", "key", "beteckning")
 
 # Värden som antyder att kolumnen är ett mått eller en tidpunkt, inte en nyckel.
-_MEASURE_HINTS = ("datum", "tidpunkt", "date", "time", "år", "ar", "belopp", "effekt", "antal")
+_MEASURE_HINTS = (
+    "datum", "tidpunkt", "date", "time", "år", "ar", "belopp", "effekt", "antal",
+    "amount", "sum", "total", "price", "pris", "värde", "varde", "quantity", "kvantitet",
+)
+
+
+def looks_like_measure(column: str) -> bool:
+    """Säger om kolumnnamnet antyder ett mått eller en tidpunkt snarare än en nyckel.
+
+    Används för att avgöra om en kolumn är värd att visa som nyckel. En kolumn
+    kan vara unik i ett litet datamaterial av en slump - ett belopp eller ett
+    datum är då unikt utan att vara en identifierare.
+    """
+    lowered = column.lower()
+    return any(hint in lowered for hint in _MEASURE_HINTS)
 
 
 @dataclass(frozen=True)

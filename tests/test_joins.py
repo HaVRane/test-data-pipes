@@ -68,3 +68,13 @@ def test_orphans_are_reported_in_reasons():
     right = pd.DataFrame({"kund_id": [1, 2, 3]})
     best = best_join(left, right)
     assert any("saknar match" in r for r in best.reasons)
+
+
+def test_looks_like_measure_recognises_amounts_and_dates():
+    from excel_merge.joins import looks_like_measure
+
+    assert looks_like_measure("belopp")
+    assert looks_like_measure("order_date")
+    assert looks_like_measure("amount")
+    assert not looks_like_measure("customer_id")
+    assert not looks_like_measure("namn")

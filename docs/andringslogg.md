@@ -29,6 +29,8 @@ python -m excel_merge.cli watch --verbose                 # logga även oförän
 | `source_removed` | källan har setts förut men finns inte i specen längre |
 | `source_changed` | innehållet har ett annat fingeravtryck än förra körningen |
 | `source_unchanged` | innehållet är identiskt (endast med `--verbose`) |
+| `source_unreadable` | källan finns i specen men filen eller fliken kunde inte läsas |
+| `source_recovered` | källan gick inte att läsa förra körningen men gör det nu |
 
 ## Varför fingeravtryck av innehållet och inte av filen
 

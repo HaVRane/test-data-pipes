@@ -68,7 +68,8 @@ Uppladdning till samtalet kräver att sökvägen ligger innanför arbetskataloge
 inside the conversation workspace". Be användaren ladda upp till
 `data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
 
-Webbapplikation med tre flikar (uppladdning, indata, kolumner och koppling):
+Webbapplikation med fem flikar (uppladdning, indata, kolumner och koppling,
+karta, ändringslogg):
 
 ```bash
 python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
@@ -102,6 +103,31 @@ Två filer: `state/changelog.ndjson` (läsbar historik, append-only) och
 
 Viktigt för agenter: lägg aldrig affärslogik i `watch`. Den beskriver att något
 ändrats, inte om ändringen är önskvärd. Domen ligger i testerna.
+
+En källa som inte går att läsa stoppar inte de andra. Den loggas som
+`source_unreadable` och behåller sitt senaste kända fingeravtryck. Kommer filen
+tillbaka loggas `source_recovered`, även om innehållet är oförändrat - annars
+skulle loggens sista rad påstå att källan fortfarande är trasig. Upprepade
+körningar med samma fel ger ingen ny händelse, så en fil som ligger borta länge
+fyller inte loggen med dubbletter.
+
+## Karta över källorna
+
+Fliken `Karta` visar varje tabell som en ruta med sina möjliga nycklar, och
+pilarna mellan dem är föreslagna kopplingar. Den svarar på frågan "vilka
+tabeller finns och vad binder dem samman", till skillnad från fliken
+`Kolumner och koppling` som visar alla kolumner i detalj.
+
+```bash
+curl "http://127.0.0.1:12000/map?key=..."   # {"nodes": [...], "edges": [...]}
+```
+
+Kartan visar bara kandidater som är rekommenderade eller möjliga (högst två per
+tabellpar), annars dränks den i svaga förslag. En kolumn vars namn antyder ett
+mått eller datum (`belopp`, `order_date`, `amount`) visas inte som nyckel: i ett
+litet datamaterial blir ett belopp unikt av en slump utan att vara en
+identifierare. En kolumn som faktiskt används i en koppling listas som nyckel
+även om den inte är unik ensam.
 
 ## Kända fallgropar
 

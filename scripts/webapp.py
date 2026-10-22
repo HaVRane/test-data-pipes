@@ -26,7 +26,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import pandas as pd
 
-from excel_merge.joins import rank_join_candidates
+from excel_merge.changelog import ChangeLog
+from excel_merge.joins import looks_like_measure, rank_join_candidates
 from excel_merge.profile import column_stats, compare_keys
 
 ALLOWED_SUFFIXES = {".xlsx", ".xls", ".xlsm", ".csv"}
@@ -66,6 +67,13 @@ PAGE = """<!doctype html>
   .pill.rec { background: #dbeafe; color: #1d4ed8; }
   .pill.maybe { background: #fef3c7; color: #b45309; }
   .pill.no { background: #f3f4f6; color: #6b7280; }
+  .map-canvas { position: relative; background: #fff; border: 1px solid #e5e7eb;
+    border-radius: 8px; overflow: auto; margin-bottom: 1rem; }
+  .map-node { position: absolute; background: #f9fafb; border: 1px solid #d1d5db;
+    border-radius: 8px; padding: .55rem .7rem; font-size: .8rem; line-height: 1.35;
+    display: flex; flex-direction: column; gap: .15rem; }
+  .map-node.isolated { border-style: dashed; background: #fff; }
+  .map-node .map-keys { display: flex; flex-wrap: wrap; gap: .2rem; margin-top: .2rem; }
   .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
           padding: 1rem; margin-bottom: 1rem; }
   ul { padding-left: 1.1rem; margin: .5rem 0 0; }
@@ -82,6 +90,8 @@ PAGE = """<!doctype html>
     <button data-tab="upload" aria-selected="true">Ladda upp</button>
     <button data-tab="sources">Indata</button>
     <button data-tab="columns">Kolumner och koppling</button>
+    <button data-tab="map">Karta</button>
+    <button data-tab="changelog">Ändringslogg</button>
   </nav>
 </header>
 <main>
@@ -101,6 +111,39 @@ PAGE = """<!doctype html>
     <p class="muted">Kolumner per datakälla, och maskinellt förslag på hur källorna kopplas ihop.</p>
     <div id="columnsBody"></div>
   </section>
+
+  <section id="map" hidden>
+    <p class="muted">En översikt över datakällorna och nycklarna som binder dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna kopplingar.</p>
+    <div id="mapBody"></div>
+  </section>
+
+  <section id="changelog" hidden>
+    <div class="card">
+      <div style="display:flex; gap:.75rem; align-items:center; flex-wrap:wrap">
+        <strong>Ändringar i datat</strong>
+        <span id="watchStatus" class="muted"></span>
+        <span style="flex:1"></span>
+        <label class="muted">Händelse
+          <select id="filterEvent">
+            <option value="">alla</option>
+            <option value="source_added">tillagd</option>
+            <option value="source_changed">ändrad</option>
+            <option value="source_removed">borttagen</option>
+            <option value="source_unchanged">oförändrad</option>
+            <option value="source_unreadable">kunde inte läsas</option>
+            <option value="source_recovered">läsbar igen</option>
+          </select>
+        </label>
+        <label class="muted">Källa <select id="filterSource"><option value="">alla</option></select></label>
+        <button id="watchButton">Sök ändringar nu</button>
+      </div>
+      <p class="muted" style="margin-bottom:0">
+        <code>watch</code> jämför källorna mot senast kända innehållsfingeravtryck och loggar
+        skillnaderna. Loggen beskriver ändringar i datat, inte i applikationen.
+      </p>
+    </div>
+    <div id="changelogBody"></div>
+  </section>
 </main>
 <script>
 const KEY = new URLSearchParams(location.search).get("key") || "";
@@ -113,6 +156,8 @@ document.querySelectorAll("#tabs button").forEach(btn => {
     document.querySelectorAll("main > section").forEach(s => { s.hidden = s.id !== btn.dataset.tab; });
     if (btn.dataset.tab === "sources") loadSources();
     if (btn.dataset.tab === "columns") loadColumns();
+    if (btn.dataset.tab === "map") loadMap();
+    if (btn.dataset.tab === "changelog") loadChangelog();
   };
 });
 
@@ -232,6 +277,209 @@ async function loadColumns() {
     box.innerHTML = out;
   } catch (e) { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; }
 }
+
+/* --- karta --- */
+function mapNodeBox(node, cx, cy, w, h) {
+  const isolated = node.isolated;
+  const keys = (node.candidate_keys || []);
+  const keyLines = keys.length
+    ? keys.slice(0, 4).map(k => `<span class="pill key">${esc(k)}</span>`).join(" ")
+    : '<span class="muted">inga självklara nycklar</span>';
+  const more = keys.length > 4 ? ` <span class="muted">+${keys.length - 4}</span>` : "";
+  return `
+    <div class="map-node ${isolated ? "isolated" : ""}" style="left:${cx - w / 2}px; top:${cy - h / 2}px; width:${w}px; min-height:${h}px">
+      <strong>${esc(node.id)}</strong>
+      <div class="muted">${esc(node.file)} · flik ${esc(node.sheet)}</div>
+      <div class="muted">${node.rows} rader · ${node.column_count} kolumner</div>
+      <div class="map-keys">${keyLines}${more}</div>
+      ${isolated ? '<div class="pill no">kopplas inte till något</div>' : ""}
+    </div>`;
+}
+
+function loadMap() {
+  const box = document.getElementById("mapBody");
+  box.innerHTML = "<p class='muted'>Ritar…</p>";
+  get("map").then(data => {
+    if (!data.nodes.length) { box.innerHTML = "<p class='muted'>Inga datakällor hittades.</p>"; return; }
+
+    const W = 880, H = 520, NW = 190, NH = 104;
+    const nodes = data.nodes;
+    const cx = W / 2, cy = H / 2;
+    // Cirkel ger jämnt avstånd mellan alla noder, oavsett hur många de är.
+    const radius = nodes.length === 1 ? 0 : Math.min(W, H) / 2 - NH;
+    const pos = {};
+    nodes.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
+      pos[node.id] = {
+        x: cx + radius * Math.cos(angle),
+        y: cy + radius * Math.sin(angle),
+      };
+    });
+
+    let svg = "";
+    for (const e of data.edges) {
+      const a = pos[e.left], b = pos[e.right];
+      if (!a || !b) continue;
+      const good = e.verdict === "rekommenderad";
+      const color = good ? "#1d4ed8" : "#b45309";
+      const dash = good ? "" : ' stroke-dasharray="5 4"';
+      // Kortare linje så pilen möter rutan, inte hamnar under den.
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const pad = NH / 2 + 4;
+      const x1 = a.x + (dx / len) * pad, y1 = a.y + (dy / len) * pad;
+      const x2 = b.x - (dx / len) * pad, y2 = b.y - (dy / len) * pad;
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2"${dash} marker-end="url(#arrow${good ? "rec" : "maybe"})"/>`;
+      const label = `${esc(e.left_column)} = ${esc(e.right_column)}`;
+      const wpx = Math.max(96, label.length * 6.4);
+      svg += `<rect x="${mx - wpx / 2}" y="${my - 11}" width="${wpx}" height="20" rx="10" fill="#fff" stroke="${color}"/>`;
+      svg += `<text x="${mx}" y="${my + 3}" text-anchor="middle" font-size="11" fill="${color}">${label}</text>`;
+    }
+
+    const boxes = nodes.map(n => mapNodeBox(n, pos[n.id].x, pos[n.id].y, NW, NH)).join("");
+    box.innerHTML = `
+      <div class="map-canvas" style="width:${W}px; height:${H}px">
+        <svg width="${W}" height="${H}" style="position:absolute; inset:0">
+          <defs>
+            <marker id="arrowrec" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d4ed8"/>
+            </marker>
+            <marker id="arrowmaybe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+            </marker>
+          </defs>
+          ${svg}
+        </svg>
+        ${boxes}
+      </div>
+      <div class="card">
+        <strong>Förklaring</strong>
+        <p class="muted" style="margin:.4rem 0">
+          <span class="pill rec">rekommenderad</span> heldragen linje ·
+          <span class="pill maybe">möjlig</span> streckad linje ·
+          <span class="pill no">isolerad</span> ingen koppling hittad
+        </p>
+        <p class="muted" style="margin:0">Tabellerna nedan listar varje koppling med nycklar och täckning.</p>
+      </div>
+      ${data.edges.length ? `<table>
+        <thead><tr><th>Koppling</th><th>Nycklar</th><th>Bedömning</th><th>Täckning</th><th>Kardinalitet</th></tr></thead>
+        <tbody>${data.edges.map(e => `<tr>
+          <td>${esc(e.left)} ↔ ${esc(e.right)}</td>
+          <td><code>${esc(e.left_column)}</code> = <code>${esc(e.right_column)}</code></td>
+          <td><span class="pill ${e.verdict === "rekommenderad" ? "rec" : "maybe"}">${esc(e.verdict)}</span></td>
+          <td>${Math.round(e.coverage * 100)}%</td>
+          <td><code>${esc(e.cardinality)}</code></td>
+        </tr>`).join("")}</tbody>
+      </table>` : "<p class='muted'>Inga kopplingar hittades mellan tabellerna.</p>"}
+    `;
+  }).catch(e => { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; });
+}
+
+/* --- ändringslogg --- */
+const EVENT_LABEL = {
+  source_added: "tillagd",
+  source_changed: "ändrad",
+  source_removed: "borttagen",
+  source_unchanged: "oförändrad",
+  source_unreadable: "kunde inte läsas",
+  source_recovered: "läsbar igen",
+};
+const EVENT_PILL = {
+  source_added: "rec",
+  source_changed: "maybe",
+  source_removed: "no",
+  source_unchanged: "no",
+  source_unreadable: "no",
+  source_recovered: "rec",
+};
+
+function changeDetail(e) {
+  const parts = [];
+  if (e.event === "source_added") parts.push(`${e.rows ?? "?"} rader`);
+  if (e.event === "source_removed") parts.push(`senast ${esc(e.last_seen || "okänt")}`);
+  if (e.event === "source_changed") {
+    if (e.rows_before !== undefined && e.rows_before !== e.rows) parts.push(`${e.rows_before} → ${e.rows} rader`);
+    if ((e.columns_added || []).length) parts.push("nya kolumner: " + e.columns_added.map(esc).join(", "));
+    if ((e.columns_removed || []).length) parts.push("borttagna kolumner: " + e.columns_removed.map(esc).join(", "));
+    if (!parts.length) parts.push("innehållet har ändrats");
+    if (e.fingerprint_before) parts.push(`<code>${esc(e.fingerprint_before)} → ${esc(e.fingerprint_after)}</code>`);
+  }
+  if (e.event === "source_unchanged") parts.push(`${e.rows ?? "?"} rader`);
+  if (e.event === "source_unreadable") {
+    parts.push(esc(e.error || "okänt fel"));
+    if (!e.known) parts.push("har aldrig lästs");
+  }
+  if (e.event === "source_recovered") parts.push(`${e.rows ?? "?"} rader`);
+  return parts.join(" · ");
+}
+
+async function loadChangelog() {
+  const box = document.getElementById("changelogBody");
+  box.innerHTML = "<p class='muted'>Läser…</p>";
+  try {
+    const data = await get("changelog");
+    const sourceFilter = document.getElementById("filterSource");
+    const chosen = sourceFilter.value;
+    sourceFilter.innerHTML = '<option value="">alla</option>' +
+      data.sources.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    sourceFilter.value = data.sources.includes(chosen) ? chosen : "";
+
+    renderChangelog(data.events, data.sources);
+  } catch (e) { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; }
+}
+
+function renderChangelog(events, sources) {
+  const box = document.getElementById("changelogBody");
+  const wantEvent = document.getElementById("filterEvent").value;
+  const wantSource = document.getElementById("filterSource").value;
+  let shown = events;
+  if (wantEvent) shown = shown.filter(e => e.event === wantEvent);
+  if (wantSource) shown = shown.filter(e => e.source === wantSource);
+
+  if (!events.length) {
+    box.innerHTML = "<p class='muted'>Ingen logg ännu. Klicka på <em>Sök ändringar nu</em> för att skapa en baslinje.</p>";
+    return;
+  }
+  if (!shown.length) { box.innerHTML = "<p class='muted'>Inga händelser matchar filtret.</p>"; return; }
+
+  box.innerHTML = `<p class="muted">${shown.length} av ${events.length} händelse(r)</p>
+    <table>
+    <thead><tr><th>Tidpunkt</th><th>Händelse</th><th>Källa</th><th>Detalj</th></tr></thead>
+    <tbody>${shown.map(e => `<tr>
+      <td class="muted">${esc(e.timestamp || "")}</td>
+      <td><span class="pill ${EVENT_PILL[e.event] || "no"}">${esc(EVENT_LABEL[e.event] || e.event)}</span></td>
+      <td>${esc(e.source || "")}</td>
+      <td>${changeDetail(e)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+document.getElementById("filterEvent").onchange = () => loadChangelog();
+document.getElementById("filterSource").onchange = () => loadChangelog();
+document.getElementById("watchButton").onclick = async () => {
+  const status = document.getElementById("watchStatus");
+  const button = document.getElementById("watchButton");
+  button.disabled = true;
+  status.textContent = "jämför…";
+  try {
+    const res = await fetch(q("watch"), { method: "POST" });
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.detail || ("HTTP " + res.status));
+    const broken = out.new_events.filter(e => e.event === "source_unreadable");
+    if (broken.length) {
+      status.textContent = `${broken.length} källa(or) kunde inte läsas`;
+    } else {
+      status.textContent = out.events.length
+        ? `${out.events.length} ny(a) händelse(r)`
+        : "inga ändringar sedan förra körningen";
+    }
+    await loadChangelog();
+  } catch (e) {
+    status.textContent = "fel: " + e.message;
+  } finally {
+    button.disabled = false;
+  }
+};
 </script>
 </html>
 """
@@ -298,10 +546,18 @@ def _load_frames(data_dir: Path, inbox: Path) -> list[tuple[str, str, str, pd.Da
             seen.add(path.resolve())
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                with pd.ExcelFile(path, engine="openpyxl") as book:
+                try:
+                    book = pd.ExcelFile(path, engine="openpyxl")
+                except Exception:  # trasig fil ska hoppas över, inte fälla sidan
+                    continue
+                with book:
                     for sheet in book.sheet_names:
+                        try:
+                            frame = book.parse(sheet)
+                        except Exception:
+                            continue
                         frames.append(
-                            (str(path.relative_to(data_dir.parent)), sheet, f"{path.stem}/{sheet}", book.parse(sheet))
+                            (str(path.relative_to(data_dir.parent)), sheet, f"{path.stem}/{sheet}", frame)
                         )
     return frames
 
@@ -357,6 +613,80 @@ def build_column_report(data_dir: Path, inbox: Path, max_candidates: int = 3) ->
     return {"sources": sources, "pairs": pairs}
 
 
+def build_relationship_map(data_dir: Path, inbox: Path, max_edges_per_pair: int = 2) -> dict:
+    """En karta över källorna och nycklarna som binder dem samman.
+
+    Till skillnad från kolumnrapporten visar den här bara det som behövs för att
+    förstå helheten: vilka tabeller som finns och vilka nycklar som kopplar dem.
+    Alla kolumner visas inte, bara de som är möjliga nycklar.
+
+    Endast kandidater som är rekommenderade eller möjliga blir kanter. Annars
+    fylls kartan av svaga förslag och blir svårare att läsa än tabellerna.
+    """
+    frames = _load_frames(data_dir, inbox)
+
+    nodes = []
+    for file_name, sheet, name, frame in frames:
+        keys = [
+            str(column)
+            for column in frame.columns
+            if column_stats(frame[column], name=str(column)).is_candidate_key
+            and not looks_like_measure(str(column))
+        ]
+        nodes.append(
+            {
+                "id": name,
+                "file": file_name,
+                "sheet": sheet,
+                "rows": int(len(frame)),
+                "column_count": int(len(frame.columns)),
+                "candidate_keys": keys,
+            }
+        )
+
+    edges = []
+    for i, (_, _, left_name, left_frame) in enumerate(frames):
+        for _, _, right_name, right_frame in frames[i + 1 :]:
+            for candidate in rank_join_candidates(left_frame, right_frame):
+                if candidate.verdict not in ("rekommenderad", "möjlig"):
+                    continue
+                edges.append(
+                    {
+                        "left": left_name,
+                        "right": right_name,
+                        "left_column": candidate.left_column,
+                        "right_column": candidate.right_column,
+                        "verdict": candidate.verdict,
+                        "score": candidate.score,
+                        "cardinality": candidate.comparison.cardinality,
+                        "coverage": round(
+                            min(candidate.comparison.coverage_left, candidate.comparison.coverage_right), 3
+                        ),
+                        "orphans_left": candidate.comparison.orphans_left,
+                        "orphans_right": candidate.comparison.orphans_right,
+                    }
+                )
+                if sum(1 for e in edges if {e["left"], e["right"]} == {left_name, right_name}) >= max_edges_per_pair:
+                    break
+
+    # Isolerade noder är värda att se: de kopplas inte till något alls.
+    connected = {e["left"] for e in edges} | {e["right"] for e in edges}
+    # En kolumn som faktiskt används i en koppling är en nyckel, även om den inte
+    # klarar unikhetskravet ensam (t.ex. en gruppnyckel med många rader per värde).
+    # Annars visar rutan "inga nycklar" samtidigt som en pil pekar på den.
+    by_node: dict[str, list[str]] = {}
+    for edge in edges:
+        by_node.setdefault(edge["left"], []).append(edge["left_column"])
+        by_node.setdefault(edge["right"], []).append(edge["right_column"])
+
+    for node in nodes:
+        extra = [k for k in by_node.get(node["id"], []) if k not in node["candidate_keys"]]
+        node["candidate_keys"] = list(node["candidate_keys"]) + extra
+        node["isolated"] = node["id"] not in connected
+
+    return {"nodes": nodes, "edges": edges}
+
+
 def _entity_name(source_name: str) -> str:
     """Gör "Vattenkraft/Vattenkraftverk" till ett användbart entitetsnamn."""
     tail = source_name.split("/")[-1]
@@ -381,6 +711,9 @@ class Handler(BaseHTTPRequestHandler):
     inbox: Path
     data_dir: Path
     key: str
+    spec_path: Path
+    log_path: Path
+    state_path: Path
 
     def _authorized(self, query: dict[str, list[str]]) -> bool:
         return secrets.compare_digest(query.get("key", [""])[0], self.key)
@@ -429,7 +762,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, build_column_report(self.data_dir, self.inbox))
             return
 
+        if parsed.path == "/map":
+            self._json(200, build_relationship_map(self.data_dir, self.inbox))
+            return
+
+        if parsed.path == "/changelog":
+            self._json(200, self._changelog_payload())
+            return
+
         self.send_error(404)
+
+    def _changelog_payload(self) -> dict:
+        """Loggen, nyast först, plus källnamnen för filtrering."""
+        log = ChangeLog(self.log_path, self.state_path)
+        events = list(reversed(log.read_events()))
+        state = log.load_state().get("sources") or {}
+        names = sorted({e.get("source", "") for e in events if e.get("source")} | set(state))
+        return {
+            "events": events,
+            "sources": names,
+            "state": state,
+            "spec": str(self.spec_path),
+        }
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
@@ -437,6 +791,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized(query):
             self.send_error(403, "ogiltig eller saknad nyckel")
             return
+        if parsed.path == "/watch":
+            self._run_watch_endpoint()
+            return
+
         if parsed.path != "/upload":
             self.send_error(404)
             return
@@ -460,29 +818,90 @@ class Handler(BaseHTTPRequestHandler):
         (self.inbox / name).write_bytes(data)
         self._json(200, {"success": True, "file": name, "file_size": len(data)})
 
+    def _run_watch_endpoint(self) -> None:
+        """Kör en ändringsbevakning på begäran från gränssnittet.
 
-def serve(data_dir: Path, inbox: Path, port: int, key: str) -> None:
+        Samma kärna som CLI:t använder, så webben och terminalen aldrig kan
+        säga olika saker om samma data.
+        """
+        from excel_merge.relations import RelationSpecError, load_relation_spec
+        from excel_merge.watch import run_watch
+
+        if not self.spec_path.is_file():
+            self._json(400, {"detail": f"relationsspecen hittades inte: {self.spec_path}"})
+            return
+        try:
+            spec = load_relation_spec(self.spec_path)
+        except RelationSpecError as exc:
+            self._json(400, {"detail": f"specen är inte giltig: {exc}"})
+            return
+
+        try:
+            events = run_watch(spec, self.log_path, self.state_path)
+        except OSError as exc:  # t.ex. skrivfel mot loggen
+            self._json(500, {"detail": f"kunde inte skriva loggen: {exc}"})
+            return
+
+        payload = self._changelog_payload()
+        payload["events_written"] = len(events)
+        payload["new_events"] = [e.as_dict() for e in events]
+        self._json(200, payload)
+
+
+def serve(
+    data_dir: Path,
+    inbox: Path,
+    port: int,
+    key: str,
+    spec_path: Path,
+    log_path: Path,
+    state_path: Path,
+) -> None:
     inbox.mkdir(parents=True, exist_ok=True)
     handler = type(
-        "BoundHandler", (Handler,), {"inbox": inbox, "data_dir": data_dir, "key": key}
+        "BoundHandler",
+        (Handler,),
+        {
+            "inbox": inbox,
+            "data_dir": data_dir,
+            "key": key,
+            "spec_path": spec_path,
+            "log_path": log_path,
+            "state_path": state_path,
+        },
     )
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     print(f"Excel-koppling på port {port}")
     print(f"  data:  {data_dir}")
     print(f"  inbox: {inbox}")
+    print(f"  spec:  {spec_path}")
+    print(f"  logg:  {log_path}")
     print(f"  nyckel: {key}")
     server.serve_forever()
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Webbapplikation: ladda upp, visa indata och kolumner.")
+    parser = argparse.ArgumentParser(
+        description="Webbapplikation: ladda upp, visa indata, kolumner och ändringslogg."
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--inbox", type=Path, default=None, help="mottagningskatalog (default: <data>/inbox)")
     parser.add_argument("--port", type=int, default=12000)
     parser.add_argument("--key", default=None, help="nyckel som krävs i URL:en (slumpas annars)")
+    parser.add_argument("--spec", type=Path, default=Path("config/relations.yaml"),
+                        help="relationsspec för ändringsloggen")
+    parser.add_argument("--log", type=Path, default=Path("state/changelog.ndjson"))
+    parser.add_argument("--state", type=Path, default=Path("state/sources.json"))
     args = parser.parse_args(argv)
-    data_dir = args.data_dir
-    serve(data_dir, args.inbox or data_dir / "inbox", args.port, args.key or secrets.token_urlsafe(16))
+    serve(
+        args.data_dir,
+        args.inbox or args.data_dir / "inbox",
+        args.port,
+        args.key or secrets.token_urlsafe(16),
+        args.spec,
+        args.log,
+        args.state,
+    )
     return 0
 
 
