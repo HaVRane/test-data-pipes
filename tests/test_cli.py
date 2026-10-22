@@ -75,10 +75,46 @@ def test_cli_returns_1_on_broken_spec(tmp_path, capsys):
 
 
 def test_cli_reports_missing_source_file(tmp_path, spec_file, capsys):
+    """En saknad källa tas bort ur modellen, som om posten struktis ur specen.
+
+    Bygget behöver customers som bas. När källan försvinner blir felet därför
+    exakt detsamma som om posten aldrig funnits i specen.
+    """
     spec = spec_file()
     (tmp_path / "customers.xlsx").unlink()
     assert main(["run", "--spec", str(spec)]) == 1
-    assert "hittades inte" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "customers" in captured.err
+    assert "tas bort ur modellen" in captured.err
+    assert "ingen källa tillhandahåller" in captured.err
+
+
+def test_cli_run_succeeds_when_an_unused_source_is_missing(tmp_path, spec_file, capsys):
+    """Saknas en källa som bygget inte använder ska körningen ändå lyckas.
+
+    Källan ska ändå nämnas, så att en felstavad sökväg inte försvinner tyst.
+    """
+    spec = spec_file()
+    regions = tmp_path / "regions.xlsx"
+    pd.DataFrame({"region_id": ["N", "S"]}).to_excel(regions, index=False, sheet_name="Regions")
+    text = spec.read_text(encoding="utf-8").replace(
+        "builds:",
+        "  - name: regions\n"
+        "    path: regions.xlsx\n"
+        "    sheet: Regions\n"
+        "    entity: region\n"
+        "    columns: {region_id: region_id}\n"
+        "builds:",
+    ).replace("entities:", "entities:\n  region:\n    key: region_id")
+    spec.write_text(text, encoding="utf-8")
+
+    regions.unlink()
+    assert main(["run", "--spec", str(spec)]) == 0
+    captured = capsys.readouterr()
+    assert "regions" in captured.err
+    assert "tas bort ur modellen" in captured.err
+    written = pd.read_excel(spec.parent / "out" / "merged.xlsx", sheet_name="Merged")
+    assert len(written) == 4
 
 
 @pytest.mark.parametrize("orphans,expected_rows", [("keep", 4), ("drop", 3)])

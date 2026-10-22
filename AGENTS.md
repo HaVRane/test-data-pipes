@@ -104,12 +104,23 @@ Två filer: `state/changelog.ndjson` (läsbar historik, append-only) och
 Viktigt för agenter: lägg aldrig affärslogik i `watch`. Den beskriver att något
 ändrats, inte om ändringen är önskvärd. Domen ligger i testerna.
 
-En källa som inte går att läsa stoppar inte de andra. Den loggas som
-`source_unreadable` och behåller sitt senaste kända fingeravtryck. Kommer filen
-tillbaka loggas `source_recovered`, även om innehållet är oförändrat - annars
-skulle loggens sista rad påstå att källan fortfarande är trasig. Upprepade
-körningar med samma fel ger ingen ny händelse, så en fil som ligger borta länge
-fyller inte loggen med dubbletter.
+En källa vars fil eller flik **saknas** finns inte längre. Den tas bort ur
+modellen och rapporteras som `source_removed` - bokstavligen samma sak som att
+stryka posten ur specen. `run` och `plan` arbetar på den reducerade specen, så
+ett bygge som förlorat sin enda källa till en entitet ger samma fel som om
+posten aldrig funnits. Källan sägs högt när den tas bort, så en felstavad
+sökväg inte försvinner tyst.
+
+En **trasig fil** är något annat: den finns kvar, vi kan bara inte tolka den.
+Den loggas som `source_unreadable` och behåller sitt senaste kända
+fingeravtryck. Kommer den tillbaka loggas `source_recovered`, även om innehållet
+är oförändrat - annars skulle loggens sista rad påstå att källan fortfarande är
+trasig. Upprepade körningar med samma fel ger ingen ny händelse, så en fil som
+ligger borta länge fyller inte loggen med dubbletter.
+
+Skiljelinjen: en saknad källa försvinner ur modellen, en trasig blir kvar men
+oläsbar. Att läsa in en trasig fil vore fel; att kasta bort en tillfälligt
+oläsbar källas historik vore lika fel.
 
 ## Karta över källorna
 

@@ -19,7 +19,7 @@ from excel_merge.config import ConfigError
 from excel_merge.engine import BuildError, execute_build
 from excel_merge.io import SourceReadError, read_sheet
 from excel_merge.profile import discover_candidate_keys, format_comparison, suggest_spec_entry
-from excel_merge.relations import RelationSpecError, build_plan, load_relation_spec
+from excel_merge.relations import RelationSpecError, build_plan, load_relation_spec, resolve_present_spec
 from excel_merge.watch import run_watch
 
 DEFAULT_LOG = "state/changelog.ndjson"
@@ -71,6 +71,8 @@ def _cmd_log(args: argparse.Namespace) -> int:
             detail = f"{event.get('rows', '?')} rader"
         elif kind == "source_removed":
             detail = f"senast {event.get('last_seen', '?')}"
+            if event.get("reason"):
+                detail += f", {event['reason']}"
         elif kind == "source_changed":
             if event.get("rows_before") is None:
                 detail = f"läsbar igen, {event.get('rows', '?')} rader"
@@ -89,8 +91,24 @@ def _cmd_log(args: argparse.Namespace) -> int:
     return 0
 
 
+def _drop_missing_sources(spec):
+    """Ta bort källor vars fil eller flik saknas, och säg till om det.
+
+    En saknad källa finns inte längre. Den ska därför behandlas precis som om
+    posten struktis ur specen. Att säga till högt är viktigt: annars kan en
+    felstavad sökväg försvinna tyst och bygget se ut att lyckas.
+    """
+    missing = spec.missing_source_names()
+    for name in missing:
+        print(
+            f"! {name}: filen eller fliken saknas - källan tas bort ur modellen",
+            file=sys.stderr,
+        )
+    return resolve_present_spec(spec) if missing else spec
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
-    spec = load_relation_spec(args.spec)
+    spec = _drop_missing_sources(load_relation_spec(args.spec))
     build_names = [args.build] if args.build else [b.name for b in spec.builds]
     for name in build_names:
         result = execute_build(spec, name)
@@ -103,6 +121,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _cmd_profile(args: argparse.Namespace) -> int:
     """Visa underlag för hur källorna kan kopplas ihop."""
     config = load_relation_spec(args.spec)
+    config = _drop_missing_sources(config)
     frames = {source.name: read_sheet(source, config.base_dir) for source in config.sources}
 
     print("Kolumnprofil per källa:")
@@ -134,7 +153,7 @@ def _cmd_profile(args: argparse.Namespace) -> int:
 
 def _cmd_plan(args: argparse.Namespace) -> int:
     """Visa vilken körplan som härleds ur specen, utan att köra den."""
-    spec = load_relation_spec(args.spec)
+    spec = _drop_missing_sources(load_relation_spec(args.spec))
     for build in spec.builds:
         print(f"bygge '{build.name}' (bas: {build.base}):")
         for index, step in enumerate(build_plan(spec, build.name), start=1):

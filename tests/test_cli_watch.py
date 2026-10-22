@@ -194,10 +194,12 @@ def test_state_file_records_first_seen(spec_file, tmp_path):
     assert state["sources"]["customers"]["rows"] == 2
 
 
-def test_watch_reports_missing_file_without_crashing(spec_file, tmp_path, capsys):
+def test_watch_reports_missing_file_as_removed_without_crashing(spec_file, tmp_path, capsys):
     """Tar man bort en källfil ska bevakningen säga det, inte krascha.
 
     Detta är hela poängen med bevakningen: att upptäcka att en källa försvunnit.
+    En saknad fil betyder att källan inte finns längre, så den rapporteras som
+    borttagen - samma sak som om posten struktis ur specen.
     """
     _watch(spec_file, tmp_path, "--timestamp", "t1")
     capsys.readouterr()
@@ -206,12 +208,12 @@ def test_watch_reports_missing_file_without_crashing(spec_file, tmp_path, capsys
 
     assert _watch(spec_file, tmp_path, "--timestamp", "t2") == 0
     out = capsys.readouterr().out
-    assert "customers kunde inte läsas" in out
+    assert "customers borttagen" in out
     # Övriga källor ska inte ha påverkats
-    assert "orders" not in out.replace("customers kunde inte läsas", "")
+    assert "orders" not in out.replace("customers borttagen", "")
 
 
-def test_watch_logs_missing_file_as_unreadable_event(spec_file, tmp_path):
+def test_watch_logs_missing_file_as_removed_event(spec_file, tmp_path):
     _watch(spec_file, tmp_path, "--timestamp", "t1")
     (tmp_path / "customers.xlsx").unlink()
     _watch(spec_file, tmp_path, "--timestamp", "t2")
@@ -220,13 +222,43 @@ def test_watch_logs_missing_file_as_unreadable_event(spec_file, tmp_path):
         json.loads(line)
         for line in (tmp_path / "state" / "log.ndjson").read_text(encoding="utf-8").splitlines()
     ]
-    unreadable = [e for e in events if e["event"] == "source_unreadable"]
-    assert [e["source"] for e in unreadable] == ["customers"]
-    assert "hittades inte" in unreadable[0]["error"]
+    removed = [e for e in events if e["event"] == "source_removed"]
+    assert [e["source"] for e in removed] == ["customers"]
+    assert removed[0]["reason"] == "filen eller fliken saknas"
 
 
-def test_restored_file_is_reported_as_recovered_not_as_new(spec_file, tmp_path, capsys):
-    """En fil som kommer tillbaka ska sägas vara läsbar igen, inte bli en ny källa."""
+def test_missing_source_leaves_the_state(spec_file, tmp_path):
+    """En saknad källa ska bort ur modellen, inte ligga kvar som oläsbar."""
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    (tmp_path / "customers.xlsx").unlink()
+    _watch(spec_file, tmp_path, "--timestamp", "t2")
+
+    state = json.loads((tmp_path / "state" / "sources.json").read_text(encoding="utf-8"))
+    assert "customers" not in state["sources"]
+    assert "orders" in state["sources"]
+
+
+def test_broken_file_stays_in_the_model_as_unreadable(spec_file, tmp_path):
+    """En trasig fil finns kvar men kan inte tolkas - den ska inte tas bort."""
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    (tmp_path / "customers.xlsx").write_bytes(b"inte ett kalkylark")
+    _watch(spec_file, tmp_path, "--timestamp", "t2")
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "state" / "log.ndjson").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [e["event"] for e in events if e["source"] == "customers"][-1] == "source_unreadable"
+    state = json.loads((tmp_path / "state" / "sources.json").read_text(encoding="utf-8"))
+    assert "customers" in state["sources"]
+
+
+def test_file_returning_after_removal_is_reported_as_added(spec_file, tmp_path, capsys):
+    """En källa som varit borta är ny igen när filen kommer tillbaka.
+
+    Den togs bort ur modellen när filen försvann, så det finns inget att
+    återställa - den rapporteras som tillagd, precis som en ny källa.
+    """
     _watch(spec_file, tmp_path, "--timestamp", "t1")
     backup = (tmp_path / "customers.xlsx").read_bytes()
     (tmp_path / "customers.xlsx").unlink()
@@ -236,5 +268,37 @@ def test_restored_file_is_reported_as_recovered_not_as_new(spec_file, tmp_path, 
     (tmp_path / "customers.xlsx").write_bytes(backup)
     _watch(spec_file, tmp_path, "--timestamp", "t3")
     out = capsys.readouterr().out
-    assert "customers läsbar igen" in out
-    assert "tillagd" not in out
+    assert "customers tillagd" in out
+    assert "läsbar igen" not in out
+
+
+def test_log_shows_why_a_source_was_removed(spec_file, tmp_path, capsys):
+    """Loggen ska visa orsaken, så att 'borttagen' går att skilja från 'borttagen ur specen'."""
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    (tmp_path / "customers.xlsx").unlink()
+    _watch(spec_file, tmp_path, "--timestamp", "t2")
+    capsys.readouterr()
+
+    main([
+        "log", "--log", str(tmp_path / "state" / "log.ndjson"),
+        "--state", str(tmp_path / "state" / "sources.json"),
+    ])
+    out = capsys.readouterr().out
+    assert "source_removed" in out
+    assert "filen eller fliken saknas" in out
+
+
+def test_removed_source_can_be_filtered_from_the_log(spec_file, tmp_path, capsys):
+    _watch(spec_file, tmp_path, "--timestamp", "t1")
+    (tmp_path / "customers.xlsx").unlink()
+    _watch(spec_file, tmp_path, "--timestamp", "t2")
+    capsys.readouterr()
+
+    main([
+        "log", "--log", str(tmp_path / "state" / "log.ndjson"),
+        "--state", str(tmp_path / "state" / "sources.json"),
+        "--event", "source_removed",
+    ])
+    out = capsys.readouterr().out
+    assert "source_removed" in out
+    assert "source_added" not in out

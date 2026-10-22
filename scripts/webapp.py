@@ -397,7 +397,10 @@ const EVENT_PILL = {
 function changeDetail(e) {
   const parts = [];
   if (e.event === "source_added") parts.push(`${e.rows ?? "?"} rader`);
-  if (e.event === "source_removed") parts.push(`senast ${esc(e.last_seen || "okänt")}`);
+  if (e.event === "source_removed") {
+    parts.push(`senast ${esc(e.last_seen || "okänt")}`);
+    if (e.reason) parts.push(esc(e.reason));
+  }
   if (e.event === "source_changed") {
     if (e.rows_before !== undefined && e.rows_before !== e.rows) parts.push(`${e.rows_before} → ${e.rows} rader`);
     if ((e.columns_added || []).length) parts.push("nya kolumner: " + e.columns_added.map(esc).join(", "));
@@ -466,8 +469,12 @@ document.getElementById("watchButton").onclick = async () => {
     const out = await res.json();
     if (!res.ok) throw new Error(out.detail || ("HTTP " + res.status));
     const broken = out.new_events.filter(e => e.event === "source_unreadable");
-    if (broken.length) {
-      status.textContent = `${broken.length} källa(or) kunde inte läsas`;
+    const gone = out.new_events.filter(e => e.event === "source_removed");
+    const notes = [];
+    if (gone.length) notes.push(`${gone.length} källa(or) borttagen`);
+    if (broken.length) notes.push(`${broken.length} källa(or) kunde inte läsas`);
+    if (notes.length) {
+      status.textContent = notes.join(", ");
     } else {
       status.textContent = out.events.length
         ? `${out.events.length} ny(a) händelse(r)`

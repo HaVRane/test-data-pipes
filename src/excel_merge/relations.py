@@ -15,7 +15,7 @@ och ändra dem, medan testerna avgör om ändringen är rimlig.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +84,40 @@ class RelationSpec:
 
     def entity_sources(self, entity: str) -> list[SourceSpec]:
         return [s for s in self.sources if s.entity == entity]
+
+    def present_sources(self) -> list[SourceSpec]:
+        """Källor vars fil och flik finns.
+
+        En källa vars fil saknas finns inte längre. Den ska därför inte vara med
+        i modellen, precis som om posten strukits ur specen. En trasig fil är
+        däremot kvar: den finns, vi kan bara inte tolka den ännu.
+        """
+        from excel_merge.io import source_is_present
+
+        return [s for s in self.sources if source_is_present(s, self.base_dir)]
+
+    def without_missing_sources(self) -> "RelationSpec":
+        """En kopia av specen där källor med saknad fil eller flik tagits bort."""
+        return replace(self, sources=self.present_sources())
+
+    def missing_source_names(self) -> list[str]:
+        """Namn på källor vars fil eller flik saknas."""
+        present = {s.name for s in self.present_sources()}
+        return [s.name for s in self.sources if s.name not in present]
+
+
+def resolve_present_spec(spec: RelationSpec) -> RelationSpec:
+    """Specen med källor vars fil eller flik saknas borttagna.
+
+    En saknad källa ska behandlas precis som om posten struktis ur specen. För
+    att det ska bli *bokstavligen* samma sak valideras den reducerade specen om:
+    ett bygge som förlorat sin enda källa till en entitet ska ge samma fel som
+    om källan aldrig funnits.
+    """
+    reduced = spec.without_missing_sources()
+    if len(reduced.sources) != len(spec.sources):
+        _validate(reduced)
+    return reduced
 
 
 def _require(mapping: dict[str, Any], key: str, ctx: str) -> Any:

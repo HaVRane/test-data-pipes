@@ -70,7 +70,9 @@ class ChangeEvent:
         if self.event == ADDED:
             return f"+ {self.source} tillagd ({self.details.get('rows', '?')} rader)"
         if self.event == REMOVED:
-            return f"- {self.source} borttagen (senast {self.details.get('last_seen', '?')})"
+            reason = self.details.get("reason")
+            suffix = f", {reason}" if reason else ""
+            return f"- {self.source} borttagen (senast {self.details.get('last_seen', '?')}{suffix})"
         if self.event == CHANGED:
             parts = []
             if self.details.get("rows_before") is None:
@@ -177,19 +179,27 @@ def detect_changes(
     timestamp: str,
     verbose: bool = False,
     unreadable: dict[str, str] | None = None,
+    missing: dict[str, str] | None = None,
 ) -> list[ChangeEvent]:
     """Jämför nuvarande fingeravtryck mot tillståndet och beskriv skillnaderna.
 
     ``current`` är källnamn -> fingeravtryck (som dict). ``state`` är det
     sparade tillståndet med senast kända fingeravtryck. ``unreadable`` är
     källor som finns i specen men inte gick att läsa, med felmeddelandet.
+    ``missing`` är källor vars fil eller flik inte finns, med orsaken.
 
     En källa som inte gick att läsa rapporteras som ``source_unreadable`` i
     stället för att avbryta hela körningen. Annars kunde bevakningen aldrig
     rapportera det mest intressanta av allt: att en källa försvunnit.
+
+    En källa vars fil saknas behandlas som borttagen. Den finns inte längre, och
+    ska därför inte finnas kvar i modellen - precis som om posten struktis ur
+    specen. Den rapporteras som ``source_removed``, inte som oläsbar: skillnaden
+    är att en trasig fil finns kvar medan en saknad fil är borta.
     """
     known: dict[str, Any] = dict(state.get("sources") or {})
     unreadable = unreadable or {}
+    missing = missing or {}
     events: list[ChangeEvent] = []
 
     for name in sorted(current):
@@ -227,10 +237,12 @@ def detect_changes(
             ChangeEvent(timestamp, UNREADABLE, name, {"error": unreadable[name], "known": name in known})
         )
 
+    # Borttagna: de som setts förut men varken går att läsa eller finns kvar.
     for name in sorted(set(known) - set(current) - set(unreadable)):
-        events.append(
-            ChangeEvent(timestamp, REMOVED, name, {"last_seen": known[name].get("last_seen", "okänt")})
-        )
+        details: dict[str, Any] = {"last_seen": known[name].get("last_seen", "okänt")}
+        if name in missing:
+            details["reason"] = "filen eller fliken saknas"
+        events.append(ChangeEvent(timestamp, REMOVED, name, details))
 
     return events
 
@@ -247,6 +259,11 @@ def next_state(
     märks med ``unreadable_at``. Att tappa dem vore fel: ett tillfälligt
     läsproblem skulle då radera historiken, och när filen kom tillbaka skulle
     den felaktigt rapporteras som helt ny.
+
+    En källa vars fil eller flik saknas följer däremot inte med in i det nya
+    tillståndet. Den finns inte längre, och då ska den inte finnas kvar i
+    modellen - precis som om posten struktis ur specen. Kommer filen tillbaka
+    rapporteras den därför som tillagd, inte som återställd.
     """
     previous = dict(state.get("sources") or {})
     unreadable = unreadable or {}

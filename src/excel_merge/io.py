@@ -21,9 +21,35 @@ class SourceReadError(RuntimeError):
     """En källa kunde inte läsas som förväntat."""
 
 
+class SourceMissingError(SourceReadError):
+    """Källans fil eller flik finns inte.
+
+    Detta är inte ett läsproblem utan en frånvaro: källan finns inte längre.
+    Skillnaden styr modellen - en saknad källa tas bort precis som om posten
+    strukits ur specen, medan en oläsbar fil finns kvar men inte kan tolkas.
+    """
+
+
 def resolve_source_path(source, base_dir: Path) -> Path:
     """Sökvägen till källans fil, absolut."""
     return source.path if source.path.is_absolute() else (base_dir / source.path).resolve()
+
+
+def source_is_present(source, base_dir: Path) -> bool:
+    """Säger om källans fil och flik finns.
+
+    En fil som inte går att öppna alls räknas som närvarande. Vi kan inte veta
+    om fliken finns i en trasig fil, och en trasig fil är ett läsproblem - inte
+    en frånvaro. ``read_sheet`` rapporterar det med sitt eget meddelande.
+    """
+    path = resolve_source_path(source, base_dir)
+    if not path.is_file():
+        return False
+    try:
+        with pd.ExcelFile(path, engine="openpyxl") as book:
+            return source.sheet in book.sheet_names
+    except Exception:
+        return True
 
 
 def read_raw_sheet(source, base_dir: Path) -> pd.DataFrame:
@@ -34,15 +60,23 @@ def read_raw_sheet(source, base_dir: Path) -> pd.DataFrame:
     """
     path = resolve_source_path(source, base_dir)
     if not path.is_file():
-        raise SourceReadError(f"källan '{source.name}': filen hittades inte: {path}")
+        raise SourceMissingError(f"källan '{source.name}': filen hittades inte: {path}")
 
     try:
         df = pd.read_excel(path, sheet_name=source.sheet, engine="openpyxl")
     except ValueError as exc:  # openpyxl/pandas kastar ValueError för okänd flik
-        available = pd.ExcelFile(path, engine="openpyxl").sheet_names
+        try:
+            available = pd.ExcelFile(path, engine="openpyxl").sheet_names
+        except Exception:
+            available = []
+        if available:
+            raise SourceMissingError(
+                f"källan '{source.name}': fliken '{source.sheet}' finns inte i {path.name}. "
+                f"Tillgängliga flikar: {available}"
+            ) from exc
+        # Filen gick inte att öppna alls. Det är ett läsproblem, inte en frånvaro.
         raise SourceReadError(
-            f"källan '{source.name}': fliken '{source.sheet}' finns inte i {path.name}. "
-            f"Tillgängliga flikar: {available}"
+            f"källan '{source.name}': kunde inte läsas ({type(exc).__name__}: {exc})"
         ) from exc
     except Exception as exc:  # trasig eller felformad fil ska bli ett läsbart fel
         raise SourceReadError(

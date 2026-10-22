@@ -25,12 +25,36 @@ python -m excel_merge.cli watch --verbose                 # logga även oförän
 
 | Händelse | Betyder |
 |---|---|
-| `source_added` | källan finns i specen men har inte setts förut |
-| `source_removed` | källan har setts förut men finns inte i specen längre |
+| `source_added` | källan finns men har inte setts förut |
+| `source_removed` | källan har setts förut men finns inte längre |
 | `source_changed` | innehållet har ett annat fingeravtryck än förra körningen |
 | `source_unchanged` | innehållet är identiskt (endast med `--verbose`) |
-| `source_unreadable` | källan finns i specen men filen eller fliken kunde inte läsas |
+| `source_unreadable` | filen finns men kunde inte läsas |
 | `source_recovered` | källan gick inte att läsa förra körningen men gör det nu |
+
+## Saknad fil och trasig fil är inte samma sak
+
+Detta är den viktigaste distinktionen i bevakningen.
+
+En källa vars **fil eller flik inte finns** existerar inte längre. Den tas bort
+ur modellen och rapporteras som `source_removed` med orsaken
+`filen eller fliken saknas`. Det är bokstavligen samma sak som att stryka posten
+ur specen: `run` och `plan` behandlar den reducerade specen som om posten aldrig
+funnits, och ett bygge som förlorat sin enda källa till en entitet ger exakt
+samma fel som om posten saknats från början.
+
+En **trasig fil** är något annat. Den finns kvar på disken, vi kan bara inte
+tolka den. Den rapporteras som `source_unreadable`, och källan behåller sitt
+senaste kända fingeravtryck i tillståndet. Kommer den tillbaka går det att se
+att innehållet är oförändrat sedan sist.
+
+Skillnaden avgör vad som händer med modellen: en saknad källa försvinner, en
+trasig blir kvar men oläsbar. Att läsa in en trasig fil i modellen vore fel,
+men att kasta bort en tillfälligt oläsbar källas historik vore lika fel.
+
+Konsekvensen av att en källa tas bort är att den som kommer tillbaka rapporteras
+som `source_added`, inte som återställd. Det finns inget att återställa - den
+blev en ny källa när den försvann.
 
 ## Varför fingeravtryck av innehållet och inte av filen
 
