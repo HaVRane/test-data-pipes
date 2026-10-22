@@ -68,6 +68,12 @@ Uppladdning till samtalet kräver att sökvägen ligger innanför arbetskataloge
 inside the conversation workspace". Be användaren ladda upp till
 `data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
 
+Webbapplikation med tre flikar (uppladdning, indata, kolumner och koppling):
+
+```bash
+python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+```
+
 Inventera uppladdade filer utan att skriva något:
 
 ```bash
@@ -90,3 +96,6 @@ Verktyget listar flikar, profilerar kolumner och skriver utkast till spec-poster
   så problemet är borta, men skriv inte `on:` i nya YAML-filer.
 - Uppladdade filer måste hamna under `/workspace/project`, annars 422. Lägg dem
   i `data/inbox/` och kör `scripts/inspect_uploads.py`.
+- Kopplingsförslag (`joins.rank_join_candidates`) väger unikhet och namnledtrådar
+  tyngre än täckning. En datumkolumn med identiska värden över båda tabellerna
+  får 100 % täckning men är inte en nyckel. Lita inte på täckning ensam.

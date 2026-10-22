@@ -187,8 +187,9 @@ def suggest_spec_entry(comparison: KeyComparison, target_entity: str) -> str:
     affärsbeslut som en människa måste bekräfta innan posten är giltig.
     """
     orphans = comparison.orphans_left
+    orphan_word = "nyckel" if orphans == 1 else "nycklar"
     orphan_note = (
-        f"# {orphans} nyckel{'r' if orphans != 1 else ''} saknar match på andra sidan - "
+        f"# {orphans} {orphan_word} saknar match på andra sidan - "
         "ska de släppas, flaggas eller fyllas?"
     )
     return "\n".join(

@@ -95,3 +95,28 @@ Klistra in fliknamn och kolumnrubriker i chatten i stället. Det räcker för at
 bygga fixtures och spec-poster; verktyget ovan behöver bara kolumnnamnen, inte
 innehållet. Är uppgifterna känsliga är det till och med bättre att beskriva
 strukturen än att ladda upp filen.
+
+## Webbapplikationen med tre flikar
+
+Den enkla uppladdningssidan är ersatt av en liten applikation:
+
+```bash
+python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+```
+
+Skriptet skriver ut port och nyckel. I sandboxen nås port 12000 som:
+
+```
+https://work-1-geobaeplpkwzfkiz.prod-runtime.all-hands.dev/?key=<nyckel>
+```
+
+Flikar:
+
+- **Ladda upp** — dra in Excel-filer. De hamnar i `data/inbox/`.
+- **Indata** — arbetsböcker och flikar som hittats i `data/` och `data/inbox/`,
+  med rad- och kolumnantal.
+- **Kolumner och koppling** — kolumnprofil per datakälla (typ, distinkta värden,
+  tomma, möjliga nycklar) samt rangordnade förslag på hur källorna kopplas ihop.
+
+All beräkning sker i Python på servern; JavaScript visar bara resultatet. Det gör
+att flikarna visar exakt samma siffror som `cli profile` och testerna.
