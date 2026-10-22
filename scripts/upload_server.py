@@ -32,14 +32,14 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <title>Ladda upp Excel-filer</title>
 <style>
-  body {{ font-family: system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; }}
-  #drop {{ border: 2px dashed #888; border-radius: 8px; padding: 3rem 1rem; text-align: center;
-           cursor: pointer; background: #fafafa; }}
-  #drop.hot {{ border-color: #2563eb; background: #eff6ff; }}
-  ul {{ padding-left: 1.2rem; }}
-  .ok {{ color: #15803d; }}
-  .err {{ color: #b91c1c; }}
-  code {{ background: #f3f4f6; padding: 0 .25rem; }}
+  body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 3rem auto; padding: 0 1rem; }
+  #drop { border: 2px dashed #888; border-radius: 8px; padding: 3rem 1rem; text-align: center;
+           cursor: pointer; background: #fafafa; }
+  #drop.hot { border-color: #2563eb; background: #eff6ff; }
+  ul { padding-left: 1.2rem; }
+  .ok { color: #15803d; }
+  .err { color: #b91c1c; }
+  code { background: #f3f4f6; padding: 0 .25rem; }
 </style>
 <h1>Ladda upp Excel-filer</h1>
 <p>Dra in filerna i rutan. De hamnar i <code>data/inbox/</code> och versionshanteras inte.</p>
@@ -53,44 +53,44 @@ const drop = document.getElementById("drop");
 const picker = document.getElementById("picker");
 const list = document.getElementById("list");
 
-async function refresh() {{
+async function refresh() {
   const res = await fetch("/list?key=" + encodeURIComponent(KEY));
-  if (!res.ok) {{ list.innerHTML = "<li class='err'>Kunde inte läsa katalogen</li>"; return; }}
+  if (!res.ok) { list.innerHTML = "<li class='err'>Kunde inte läsa katalogen</li>"; return; }
   const files = await res.json();
   list.innerHTML = files.length
-    ? files.map(f => `<li class="ok">${{f.name}} <small>(${{f.size}} byte)</small></li>`).join("")
+    ? files.map(f => `<li class="ok">${f.name} <small>(${f.size} byte)</small></li>`).join("")
     : "<li>Inga filer ännu</li>";
-}}
+}
 
-async function upload(file) {{
-  const res = await fetch("/upload?key=" + encodeURIComponent(KEY), {{
+async function upload(file) {
+  const res = await fetch("/upload?key=" + encodeURIComponent(KEY), {
     method: "POST",
-    headers: {{ "X-Filename": encodeURIComponent(file.name) }},
+    headers: { "X-Filename": encodeURIComponent(file.name) },
     body: file,
-  }});
-  const out = await res.json().catch(() => ({{ detail: res.statusText }}));
-  return `${{file.name}}: ${{res.ok ? "OK" : "FEL - " + out.detail}}`;
-}}
+  });
+  const out = await res.json().catch(() => ({ detail: res.statusText }));
+  return `${file.name}: ${res.ok ? "OK" : "FEL - " + out.detail}`;
+}
 
-async function handle(files) {{
-  for (const file of files) {{
+async function handle(files) {
+  for (const file of files) {
     const msg = await upload(file);
     const li = document.createElement("li");
     li.textContent = msg;
     li.className = msg.includes("OK") ? "ok" : "err";
     list.prepend(li);
-  }}
+  }
   refresh();
-}}
+}
 
 drop.onclick = () => picker.click();
 picker.onchange = () => handle(picker.files);
-["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => {{
+["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => {
   ev.preventDefault(); drop.classList.add("hot");
-}}));
-["dragleave", "drop"].forEach(e => drop.addEventListener(e, ev => {{
+}));
+["dragleave", "drop"].forEach(e => drop.addEventListener(e, ev => {
   ev.preventDefault(); drop.classList.remove("hot");
-}}));
+}));
 drop.addEventListener("drop", ev => handle(ev.dataTransfer.files));
 refresh();
 </script>

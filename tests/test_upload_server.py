@@ -38,3 +38,12 @@ def test_rejects_hidden_and_empty_names():
         safe_name("")
     with pytest.raises(ValueError, match="filtypen"):
         safe_name("utan_andelse")
+
+
+def test_page_has_valid_css_and_js():
+    """Sidan renderas som rå HTML - inga mallklamrar får läcka igenom."""
+    from upload_server import PAGE
+
+    assert "{{" not in PAGE and "}}" not in PAGE
+    assert "fetch(" in PAGE
+    assert "border-radius" in PAGE
