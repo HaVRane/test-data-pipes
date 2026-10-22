@@ -37,7 +37,7 @@ PAGE = """<!doctype html>
 <html lang="sv">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Excel-koppling</title>
+<title>Automatiserad dataplattform med övervakning</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -85,12 +85,12 @@ PAGE = """<!doctype html>
         overflow-x: auto; font-size: .8rem; }
 </style>
 <header>
-  <h1>Excel-koppling</h1>
+  <h1>Automatiserad dataplattform med övervakning</h1>
   <nav id="tabs">
     <button data-tab="upload" aria-selected="true">Ladda upp</button>
     <button data-tab="sources">Indata</button>
     <button data-tab="columns">Kolumner och koppling</button>
-    <button data-tab="map">Karta</button>
+    <button data-tab="map">Indatarelationer</button>
     <button data-tab="changelog">Ändringslogg</button>
   </nav>
 </header>
@@ -113,7 +113,7 @@ PAGE = """<!doctype html>
   </section>
 
   <section id="map" hidden>
-    <p class="muted">En översikt över datakällorna och nycklarna som binder dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna kopplingar.</p>
+    <p class="muted">En översikt över datakällorna och nycklarna som binder dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna relationer.</p>
     <div id="mapBody"></div>
   </section>
 
@@ -278,7 +278,7 @@ async function loadColumns() {
   } catch (e) { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; }
 }
 
-/* --- karta --- */
+/* --- indatarelationer --- */
 function mapNodeBox(node, cx, cy, w, h) {
   const isolated = node.isolated;
   const keys = (node.candidate_keys || []);
@@ -621,14 +621,14 @@ def build_column_report(data_dir: Path, inbox: Path, max_candidates: int = 3) ->
 
 
 def build_relationship_map(data_dir: Path, inbox: Path, max_edges_per_pair: int = 2) -> dict:
-    """En karta över källorna och nycklarna som binder dem samman.
+    """En översikt över källorna och nycklarna som binder dem samman.
 
     Till skillnad från kolumnrapporten visar den här bara det som behövs för att
     förstå helheten: vilka tabeller som finns och vilka nycklar som kopplar dem.
     Alla kolumner visas inte, bara de som är möjliga nycklar.
 
     Endast kandidater som är rekommenderade eller möjliga blir kanter. Annars
-    fylls kartan av svaga förslag och blir svårare att läsa än tabellerna.
+    fylls relationerna av svaga förslag och blir svårare att läsa än tabellerna.
     """
     frames = _load_frames(data_dir, inbox)
 
@@ -878,7 +878,7 @@ def serve(
         },
     )
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
-    print(f"Excel-koppling på port {port}")
+    print(f"Automatiserad dataplattform med övervakning på port {port}")
     print(f"  data:  {data_dir}")
     print(f"  inbox: {inbox}")
     print(f"  spec:  {spec_path}")

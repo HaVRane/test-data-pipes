@@ -117,6 +117,11 @@ Flikar:
   med rad- och kolumnantal.
 - **Kolumner och koppling** — kolumnprofil per datakälla (typ, distinkta värden,
   tomma, möjliga nycklar) samt rangordnade förslag på hur källorna kopplas ihop.
+- **Indatarelationer** — en översikt över datakällorna och nycklarna som binder
+  dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna
+  kopplingar.
+- **Ändringslogg** — vad som ändrats i data sedan senast, med möjlighet att
+  filtrera per händelse och källa.
 
 All beräkning sker i Python på servern; JavaScript visar bara resultatet. Det gör
 att flikarna visar exakt samma siffror som `cli profile` och testerna.

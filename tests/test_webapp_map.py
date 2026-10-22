@@ -1,4 +1,4 @@
-"""Kartan över datakällorna och nycklarna som binder dem samman."""
+"""Indatarelationerna: datakällorna och nycklarna som binder dem samman."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_node_carries_rows_and_column_count(data_dir):
 
 
 def test_node_lists_candidate_keys_only(data_dir):
-    """Kartan ska visa möjliga nycklar, inte alla kolumner."""
+    """Relationerna ska visa möjliga nycklar, inte alla kolumner."""
     result = build_relationship_map(data_dir, data_dir / "inbox")
     node = next(n for n in result["nodes"] if n["id"] == "kunder/Kunder")
     assert "kund_id" in node["candidate_keys"]
@@ -95,7 +95,7 @@ def test_connected_sheets_are_not_isolated(data_dir):
 
 
 def test_map_limits_edges_per_pair(tmp_path):
-    """En tabell med många liknande kolumner ska inte fylla kartan med kanter."""
+    """En tabell med många liknande kolumner ska inte fylla relationerna med kanter."""
     data = tmp_path / "data"
     inbox = data / "inbox"
     inbox.mkdir(parents=True)
@@ -124,7 +124,7 @@ def test_map_is_json_serialisable(data_dir):
 
 
 def test_key_used_in_a_join_is_listed_even_if_not_unique(tmp_path):
-    """En kolumn som en pil pekar på ska visas som nyckel, annars motsäger kartan sig."""
+    """En kolumn som en pil pekar på ska visas som nyckel, annars motsäger de sig."""
     data = tmp_path / "data"
     inbox = data / "inbox"
     inbox.mkdir(parents=True)

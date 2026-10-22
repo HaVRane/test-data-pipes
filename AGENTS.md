@@ -68,8 +68,8 @@ Uppladdning till samtalet kräver att sökvägen ligger innanför arbetskataloge
 inside the conversation workspace". Be användaren ladda upp till
 `data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
 
-Webbapplikation med fem flikar (uppladdning, indata, kolumner och koppling,
-karta, ändringslogg):
+Webbapplikationen "Automatiserad dataplattform med övervakning" har fem flikar
+(uppladdning, indata, kolumner och koppling, indatarelationer, ändringslogg):
 
 ```bash
 python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
@@ -122,22 +122,22 @@ Skiljelinjen: en saknad källa försvinner ur modellen, en trasig blir kvar men
 oläsbar. Att läsa in en trasig fil vore fel; att kasta bort en tillfälligt
 oläsbar källas historik vore lika fel.
 
-## Karta över källorna
+## Indatarelationer
 
-Fliken `Karta` visar varje tabell som en ruta med sina möjliga nycklar, och
-pilarna mellan dem är föreslagna kopplingar. Den svarar på frågan "vilka
-tabeller finns och vad binder dem samman", till skillnad från fliken
+Fliken `Indatarelationer` visar varje tabell som en ruta med sina möjliga
+nycklar, och pilarna mellan dem är föreslagna kopplingar. Den svarar på frågan
+"vilka tabeller finns och vad binder dem samman", till skillnad från fliken
 `Kolumner och koppling` som visar alla kolumner i detalj.
 
 ```bash
 curl "http://127.0.0.1:12000/map?key=..."   # {"nodes": [...], "edges": [...]}
 ```
 
-Kartan visar bara kandidater som är rekommenderade eller möjliga (högst två per
-tabellpar), annars dränks den i svaga förslag. En kolumn vars namn antyder ett
-mått eller datum (`belopp`, `order_date`, `amount`) visas inte som nyckel: i ett
-litet datamaterial blir ett belopp unikt av en slump utan att vara en
-identifierare. En kolumn som faktiskt används i en koppling listas som nyckel
+Relationerna visar bara kandidater som är rekommenderade eller möjliga (högst
+två per tabellpar), annars dränks de i svaga förslag. En kolumn vars namn
+antydar ett mått eller datum (`belopp`, `order_date`, `amount`) visas inte som
+nyckel: i ett litet datamaterial blir ett belopp unikt av en slump utan att vara
+en identifierare. En kolumn som faktiskt används i en koppling listas som nyckel
 även om den inte är unik ensam.
 
 ## Kända fallgropar
