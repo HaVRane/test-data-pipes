@@ -1,0 +1,63 @@
+"""Läsning och skrivning av Excel, isolerat från affärslogiken.
+
+Allt I/O går genom dessa funktioner. Det gör att testerna kan arbeta mot
+temporära filer utan att känna till pandas detaljer.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+from excel_merge.config import OutputConfig, SourceConfig
+
+
+class SourceReadError(RuntimeError):
+    """En källa kunde inte läsas som förväntat."""
+
+
+def read_sheet(source: SourceConfig, base_dir: Path) -> pd.DataFrame:
+    path = source.path if source.path.is_absolute() else (base_dir / source.path).resolve()
+    if not path.is_file():
+        raise SourceReadError(f"källan '{source.name}': filen hittades inte: {path}")
+
+    try:
+        df = pd.read_excel(path, sheet_name=source.sheet, engine="openpyxl")
+    except ValueError as exc:  # openpyxl/pandas kastar ValueError för okänd flik
+        available = pd.ExcelFile(path, engine="openpyxl").sheet_names
+        raise SourceReadError(
+            f"källan '{source.name}': fliken '{source.sheet}' finns inte i {path.name}. "
+            f"Tillgängliga flikar: {available}"
+        ) from exc
+
+    df.columns = [str(c).strip() for c in df.columns]
+
+    missing = [c for c in source.required_input_columns if c not in df.columns]
+    if missing:
+        raise SourceReadError(
+            f"källan '{source.name}': kolumn(er) {missing} saknas i fliken '{source.sheet}'. "
+            f"Fliken har: {list(df.columns)}"
+        )
+
+    df = df[source.required_input_columns].copy()
+    df = df.rename(columns=source.columns)
+
+    for column, dtype in source.dtypes.items():
+        target = source.columns.get(column, column)
+        try:
+            df[target] = df[target].astype(dtype)
+        except (TypeError, ValueError) as exc:
+            raise SourceReadError(
+                f"källan '{source.name}': kunde inte typa kolumnen '{target}' som {dtype}: {exc}"
+            ) from exc
+
+    return df
+
+
+def write_sheet(df: pd.DataFrame, output: OutputConfig, base_dir: Path) -> Path:
+    path = output.path if output.path.is_absolute() else (base_dir / output.path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name=output.sheet, index=False)
+    return path

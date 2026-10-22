@@ -1,0 +1,35 @@
+# Deklarativ definition av dataflödet.
+# Allt som en agent behöver för att lägga till en källa eller ändra flödet finns här.
+version: 1
+
+sources:
+  - name: customers
+    path: ../data/customers.xlsx
+    sheet: Customers
+    dtypes:
+      customer_id: int
+    columns:            # original -> namn i det sammanslagna arket
+      customer_id: customer_id
+      name: customer_name
+      segment: segment
+
+  - name: orders
+    path: ../data/orders.xlsx
+    sheet: Orders
+    dtypes:
+      customer_id: int
+      amount: float
+    columns:
+      customer_id: customer_id
+      amount: order_amount
+      order_date: order_date
+
+join:
+  on: [customer_id]
+  how: left             # left | inner | outer
+  validate: many_to_one # data-kvalitetskontroll; sätts till null för att stänga av
+
+output:
+  path: ../out/merged.xlsx
+  sheet: Merged
+  columns: [customer_id, customer_name, segment, order_amount, order_date]
