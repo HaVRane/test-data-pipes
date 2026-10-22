@@ -1,4 +1,4 @@
-"""Webbapplikation med tre flikar: ladda upp, indata, kolumner och koppling.
+"""Webbapplikation: anslut datakälla, indata, kolumner, relationer och ändringslogg.
 
 Ersätter den tidigare enkla uppladdningssidan. Sidan är ett tunt skal över
 samma logik som CLI:t använder - ingen databehandling sker i JavaScript.
@@ -87,7 +87,7 @@ PAGE = """<!doctype html>
 <header>
   <h1>Automatiserad dataplattform med övervakning</h1>
   <nav id="tabs">
-    <button data-tab="upload" aria-selected="true">Ladda upp</button>
+    <button data-tab="upload" aria-selected="true">Anslut datakälla</button>
     <button data-tab="sources">Indata</button>
     <button data-tab="columns">Kolumner och koppling</button>
     <button data-tab="map">Indatarelationer</button>
@@ -889,7 +889,7 @@ def serve(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Webbapplikation: ladda upp, visa indata, kolumner och ändringslogg."
+        description="Webbapplikation: anslut datakälla, visa indata, kolumner, relationer och ändringslogg."
     )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--inbox", type=Path, default=None, help="mottagningskatalog (default: <data>/inbox)")

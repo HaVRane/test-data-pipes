@@ -112,7 +112,7 @@ https://work-1-geobaeplpkwzfkiz.prod-runtime.all-hands.dev/?key=<nyckel>
 
 Flikar:
 
-- **Ladda upp** — dra in Excel-filer. De hamnar i `data/inbox/`.
+- **Anslut datakälla** — dra in Excel-filer. De hamnar i `data/inbox/`.
 - **Indata** — arbetsböcker och flikar som hittats i `data/` och `data/inbox/`,
   med rad- och kolumnantal.
 - **Kolumner och koppling** — kolumnprofil per datakälla (typ, distinkta värden,

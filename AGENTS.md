@@ -69,7 +69,7 @@ inside the conversation workspace". Be användaren ladda upp till
 `data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
 
 Webbapplikationen "Automatiserad dataplattform med övervakning" har fem flikar
-(uppladdning, indata, kolumner och koppling, indatarelationer, ändringslogg):
+(anslut datakälla, indata, kolumner och koppling, indatarelationer, ändringslogg):
 
 ```bash
 python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
