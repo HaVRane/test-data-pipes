@@ -4,7 +4,13 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 out/
+
+# Uppladdade datafiler versionshanteras inte, men mottagningskatalogen finns kvar.
 data/*.xlsx
 data/*.xls
-data/inbox/
+data/*.xlsm
+data/inbox/*
+!data/inbox/.gitkeep
+!data/inbox/README.md
+
 .agent_tmp/
