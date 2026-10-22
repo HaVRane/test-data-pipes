@@ -10,10 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from excel_merge.changelog import (
+    FILE_RECEIVED,
     ChangeEvent,
     ChangeLog,
     detect_changes,
+    detect_structure_changes,
     next_state,
+    spec_snapshot,
     utc_now,
 )
 from excel_merge.fingerprint import fingerprint_frame
@@ -65,6 +68,10 @@ def run_watch(
 ) -> list[ChangeEvent]:
     """Jämför källorna mot senast kända tillstånd och skriv nya händelser.
 
+    Två slag av ändringar upptäcks i samma svep: ändringar i *datat* (innehållet
+    i en källa) och ändringar i *strukturen* (hur pipen är uppbyggd enligt
+    specen). Båda hamnar i samma logg, åtskilda av fältet ``kind``.
+
     Returnerar händelserna som skrevs, så att anroparen kan visa dem.
     """
     log = ChangeLog(log_path, state_path, verbose=verbose)
@@ -72,10 +79,32 @@ def run_watch(
 
     current, unreadable, missing = fingerprint_sources(spec)
     state = log.load_state()
+    snapshot = spec_snapshot(spec)
+
     events = detect_changes(
         current, state, stamp, verbose=verbose, unreadable=unreadable, missing=missing
     )
+    events.extend(detect_structure_changes(snapshot, state, stamp))
 
     log.append(events)
-    log.save_state(next_state(current, state, stamp, unreadable=unreadable))
+    log.save_state(next_state(current, state, stamp, unreadable=unreadable, structure=snapshot))
     return events
+
+
+def record_ingest(
+    log_path: Path,
+    state_path: Path,
+    file_name: str,
+    details: dict | None = None,
+    timestamp: str | None = None,
+) -> ChangeEvent:
+    """Logga att en fil tagits emot.
+
+    Själva mottagandet är inte en ändring i datat - filen är ännu inte läst - men
+    det är ögonblicket då en ny källa börjar sitt liv. Utan den raden går det
+    inte att i efterhand se när en fil kom in i systemet.
+    """
+    log = ChangeLog(log_path, state_path)
+    event = ChangeEvent(timestamp or utc_now(), FILE_RECEIVED, file_name, dict(details or {}))
+    log.append([event])
+    return event

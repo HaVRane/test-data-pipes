@@ -95,8 +95,12 @@ def test_first_watch_reports_sources_as_added(spec_file, tmp_path, capsys):
         json.loads(line)
         for line in (tmp_path / "state" / "log.ndjson").read_text(encoding="utf-8").splitlines()
     ]
-    assert [e["event"] for e in events] == ["source_added"] * 3
-    assert all(e["timestamp"] == "2026-01-01T00:00:00+00:00" for e in events)
+    # Första körningen skriver både datahändelser (källorna upptäcks) och
+    # strukturhändelser (specens uppbyggnad). Här avses datahändelserna.
+    data_events = [e for e in events if e["kind"] == "data"]
+    assert [e["event"] for e in data_events] == ["source_added"] * 3
+    assert all(e["timestamp"] == "2026-01-01T00:00:00+00:00" for e in data_events)
+    assert all("kind" in e for e in events)
 
 
 def test_second_watch_reports_no_changes(spec_file, tmp_path, capsys):

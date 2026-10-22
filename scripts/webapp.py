@@ -98,7 +98,10 @@ PAGE = """<!doctype html>
   <section id="upload">
     <div id="drop">Släpp Excel-filer här, eller klicka för att välja</div>
     <input id="picker" type="file" multiple accept=".xlsx,.xls,.xlsm,.csv" hidden>
-    <p class="muted">Filerna hamnar i <code>data/inbox/</code> och versionshanteras inte.</p>
+    <p class="muted">Filerna hamnar i <code>data/inbox/</code> och versionshanteras inte.
+      Varje uppladdad fil blir automatiskt en datakälla: fliken läggs in i
+      <code>config/relations.yaml</code>, analysen körs och händelsen loggas.
+      Saknar fliken en egen nyckel får den en radnyckel, så att ingen fil lämnas utanför.</p>
     <ul id="uploadList"></ul>
   </section>
 
@@ -132,6 +135,22 @@ PAGE = """<!doctype html>
             <option value="source_unchanged">oförändrad</option>
             <option value="source_unreadable">kunde inte läsas</option>
             <option value="source_recovered">läsbar igen</option>
+            <option value="source_declared">inlagd i specen</option>
+            <option value="source_undeclared">struken ur specen</option>
+            <option value="source_redefined">omdefinierad</option>
+            <option value="entity_declared">entitet tillagd</option>
+            <option value="entity_undeclared">entitet borttagen</option>
+            <option value="entity_redefined">entitet omdefinierad</option>
+            <option value="build_redefined">bygge ändrat</option>
+            <option value="file_received">fil mottagen</option>
+          </select>
+        </label>
+        <label class="muted">Slag
+          <select id="filterKind">
+            <option value="">alla</option>
+            <option value="data">data</option>
+            <option value="structure">struktur</option>
+            <option value="ingest">mottagning</option>
           </select>
         </label>
         <label class="muted">Källa <select id="filterSource"><option value="">alla</option></select></label>
@@ -139,7 +158,9 @@ PAGE = """<!doctype html>
       </div>
       <p class="muted" style="margin-bottom:0">
         <code>watch</code> jämför källorna mot senast kända innehållsfingeravtryck och loggar
-        skillnaderna. Loggen beskriver ändringar i datat, inte i applikationen.
+        skillnaderna. Loggen har två slag: <strong>data</strong> beskriver ändringar i
+        innehållet, <strong>struktur</strong> beskriver hur pipen byggts om (källor, nycklar,
+        byggen). Tillsammans blir de en tidslinje över hela dataflödet.
       </p>
     </div>
     <div id="changelogBody"></div>
@@ -189,14 +210,37 @@ async function uploadOne(file) {
   });
   const out = await res.json().catch(() => ({ detail: res.statusText }));
   const li = document.createElement("li");
-  li.className = res.ok ? "ok" : "err";
-  li.textContent = file.name + ": " + (res.ok ? "OK" : "FEL - " + out.detail);
+  li.className = res.ok && !out.registration_error ? "ok" : "err";
+  let text = file.name + ": ";
+  if (!res.ok) {
+    text += "FEL - " + out.detail;
+  } else if (out.registration_error) {
+    text += "mottagen, men källan kunde inte läggas in - " + out.registration_error;
+  } else {
+    const s = out.source;
+    text += `OK - datakällan "${s.name}" (entitet ${s.entity}, nyckel ${s.key})`;
+    if (s.relationship_to) text += `, kopplad till ${s.relationship_to} via ${s.relationship_via}`;
+  }
+  li.textContent = text;
   uploadList.prepend(li);
+  return out;
 }
 
 async function handle(files) {
-  for (const f of files) await uploadOne(f);
+  let registered = 0;
+  for (const f of files) {
+    const out = await uploadOne(f);
+    if (out && out.source) registered += 1;
+  }
   refreshUploads();
+  // Nya källor ändrar indata, kolumner, relationer och loggen. Ladda om de
+  // vyer som redan ritats, så att de inte visar en bild från före uppladdningen.
+  if (registered) {
+    if (!document.getElementById("sources").hidden) loadSources();
+    if (!document.getElementById("columns").hidden) loadColumns();
+    if (!document.getElementById("map").hidden) loadMap();
+    if (!document.getElementById("changelog").hidden) loadChangelog();
+  }
 }
 
 drop.onclick = () => picker.click();
@@ -384,6 +428,14 @@ const EVENT_LABEL = {
   source_unchanged: "oförändrad",
   source_unreadable: "kunde inte läsas",
   source_recovered: "läsbar igen",
+  source_declared: "inlagd i specen",
+  source_undeclared: "struken ur specen",
+  source_redefined: "omdefinierad",
+  entity_declared: "entitet tillagd",
+  entity_undeclared: "entitet borttagen",
+  entity_redefined: "entitet omdefinierad",
+  build_redefined: "bygge ändrat",
+  file_received: "fil mottagen",
 };
 const EVENT_PILL = {
   source_added: "rec",
@@ -392,7 +444,16 @@ const EVENT_PILL = {
   source_unchanged: "no",
   source_unreadable: "no",
   source_recovered: "rec",
+  source_declared: "rec",
+  source_undeclared: "no",
+  source_redefined: "maybe",
+  entity_declared: "rec",
+  entity_undeclared: "no",
+  entity_redefined: "maybe",
+  build_redefined: "maybe",
+  file_received: "rec",
 };
+const KIND_LABEL = { data: "data", structure: "struktur", ingest: "mottagning" };
 
 function changeDetail(e) {
   const parts = [];
@@ -414,6 +475,20 @@ function changeDetail(e) {
     if (!e.known) parts.push("har aldrig lästs");
   }
   if (e.event === "source_recovered") parts.push(`${e.rows ?? "?"} rader`);
+  if (e.event === "source_declared" || e.event === "entity_declared") {
+    if (e.path) parts.push(esc(e.path));
+    if (e.sheet) parts.push("flik " + esc(e.sheet));
+    if (e.entity) parts.push("entitet " + esc(e.entity));
+    if (e.key) parts.push("nyckel " + esc(e.key));
+  }
+  if (e.event === "source_undeclared" || e.event === "entity_undeclared") {
+    parts.push("fanns tidigare i specen");
+  }
+  if ((e.event === "source_redefined" || e.event === "entity_redefined" || e.event === "build_redefined")
+      && (e.changes || []).length) {
+    parts.push(e.changes.map(esc).join(" · "));
+  }
+  if (e.event === "file_received") parts.push(`${e.bytes ?? "?"} byte`);
   return parts.join(" · ");
 }
 
@@ -435,29 +510,36 @@ async function loadChangelog() {
 function renderChangelog(events, sources) {
   const box = document.getElementById("changelogBody");
   const wantEvent = document.getElementById("filterEvent").value;
+  const wantKind = document.getElementById("filterKind").value;
   const wantSource = document.getElementById("filterSource").value;
   let shown = events;
   if (wantEvent) shown = shown.filter(e => e.event === wantEvent);
+  if (wantKind) shown = shown.filter(e => (e.kind || "data") === wantKind);
   if (wantSource) shown = shown.filter(e => e.source === wantSource);
 
   if (!events.length) {
-    box.innerHTML = "<p class='muted'>Ingen logg ännu. Klicka på <em>Sök ändringar nu</em> för att skapa en baslinje.</p>";
+    box.innerHTML = "<p class='muted'>Ingen logg ännu. Ladda upp en fil eller klicka på <em>Sök ändringar nu</em> för att skapa en baslinje.</p>";
     return;
   }
   if (!shown.length) { box.innerHTML = "<p class='muted'>Inga händelser matchar filtret.</p>"; return; }
 
   box.innerHTML = `<p class="muted">${shown.length} av ${events.length} händelse(r)</p>
     <table>
-    <thead><tr><th>Tidpunkt</th><th>Händelse</th><th>Källa</th><th>Detalj</th></tr></thead>
-    <tbody>${shown.map(e => `<tr>
+    <thead><tr><th>Tidpunkt</th><th>Slag</th><th>Händelse</th><th>Källa</th><th>Detalj</th></tr></thead>
+    <tbody>${shown.map(e => {
+      const kind = e.kind || "data";
+      return `<tr>
       <td class="muted">${esc(e.timestamp || "")}</td>
+      <td><span class="pill no">${esc(KIND_LABEL[kind] || kind)}</span></td>
       <td><span class="pill ${EVENT_PILL[e.event] || "no"}">${esc(EVENT_LABEL[e.event] || e.event)}</span></td>
       <td>${esc(e.source || "")}</td>
       <td>${changeDetail(e)}</td>
-    </tr>`).join("")}</tbody></table>`;
+    </tr>`;
+    }).join("")}</tbody></table>`;
 }
 
 document.getElementById("filterEvent").onchange = () => loadChangelog();
+document.getElementById("filterKind").onchange = () => loadChangelog();
 document.getElementById("filterSource").onchange = () => loadChangelog();
 document.getElementById("watchButton").onclick = async () => {
   const status = document.getElementById("watchStatus");
@@ -784,10 +866,16 @@ class Handler(BaseHTTPRequestHandler):
         log = ChangeLog(self.log_path, self.state_path)
         events = list(reversed(log.read_events()))
         state = log.load_state().get("sources") or {}
-        names = sorted({e.get("source", "") for e in events if e.get("source")} | set(state))
+        # Bara datakällor: strukturhändelserna handlar om entiteter och byggen,
+        # och de hör inte hemma i källfiltret.
+        names = {
+            e.get("source", "")
+            for e in events
+            if e.get("kind", "data") == "data" and e.get("source")
+        } | set(state)
         return {
             "events": events,
-            "sources": names,
+            "sources": sorted(names),
             "state": state,
             "spec": str(self.spec_path),
         }
@@ -822,8 +910,68 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         data = self.rfile.read(length)
-        (self.inbox / name).write_bytes(data)
-        self._json(200, {"success": True, "file": name, "file_size": len(data)})
+        target = self.inbox / name
+        target.write_bytes(data)
+
+        # Registreringen gör filen till en källa i pipen och loggar händelsen.
+        # Den får aldrig fälla uppladdningen: filen är redan mottagen, och ett
+        # fel här ska rapporteras vid sidan av - inte se ut som en misslyckad
+        # överföring.
+        from excel_merge.register import RegistrationError, register_source
+        from excel_merge.watch import record_ingest, run_watch
+
+        payload: dict = {"success": True, "file": name, "file_size": len(data)}
+
+        try:
+            record_ingest(self.log_path, self.state_path, name, {"bytes": len(data)})
+        except OSError as exc:
+            payload["log_warning"] = f"kunde inte skriva loggen: {exc}"
+
+        try:
+            registration = register_source(self.spec_path, target, sheet=self._first_sheet(target))
+            payload["source"] = {
+                "name": registration.name,
+                "entity": registration.entity,
+                "key": registration.key,
+                "sheet": registration.sheet,
+                "columns": registration.columns,
+                "relationship_to": registration.relationship_to,
+                "relationship_via": registration.relationship_via,
+            }
+        except RegistrationError as exc:
+            payload["registration_error"] = str(exc)
+            self._json(200, payload)
+            return
+
+        # Registreringen ändrade specen. Kör bevakningen direkt, så att
+        # strukturhändelsen och källans första fingeravtryck hamnar i loggen i
+        # samma steg - det är det som gör att historiken blir fullständig.
+        try:
+            from excel_merge.relations import load_relation_spec
+
+            events = run_watch(load_relation_spec(self.spec_path), self.log_path, self.state_path)
+            payload["events"] = [e.as_dict() for e in events]
+        except Exception as exc:  # bevakningen får inte fälla uppladdningen
+            payload["watch_warning"] = f"kunde inte köra bevakningen: {exc}"
+
+        self._json(200, payload)
+
+    @staticmethod
+    def _first_sheet(path: Path) -> str:
+        """Första fliken i en arbetsbok.
+
+        Uppladdningen gäller en fil; pipen arbetar med flikar. Vi tar den första
+        fliken som källan, vilket är det förutsägbara valet när användaren inte
+        angett någon.
+        """
+        import warnings as _warnings
+
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            with pd.ExcelFile(path, engine="openpyxl") as book:
+                if not book.sheet_names:
+                    raise ValueError(f"{path.name} innehåller inga flikar")
+                return book.sheet_names[0]
 
     def _run_watch_endpoint(self) -> None:
         """Kör en ändringsbevakning på begäran från gränssnittet.

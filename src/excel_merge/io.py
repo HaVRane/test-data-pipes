@@ -100,6 +100,12 @@ def read_sheet(source, base_dir: Path) -> pd.DataFrame:
     df = df[source.required_input_columns].copy()
     df = df.rename(columns=source.columns)
 
+    row_key = getattr(source, "row_key", None)
+    if row_key:
+        # Surrogatnyckel: radens nummer i fliken. Fliken saknar egen nyckel, och
+        # utan en sådan kan raden inte identifieras i en koppling.
+        df.insert(0, row_key, range(1, len(df) + 1))
+
     for column, dtype in source.dtypes.items():
         target = source.columns.get(column, column)
         try:

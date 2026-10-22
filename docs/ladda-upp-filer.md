@@ -112,7 +112,10 @@ https://work-1-geobaeplpkwzfkiz.prod-runtime.all-hands.dev/?key=<nyckel>
 
 Flikar:
 
-- **Anslut datakälla** — dra in Excel-filer. De hamnar i `data/inbox/`.
+- **Anslut datakälla** — dra in Excel-filer. De hamnar i `data/inbox/`. Varje fil
+  blir automatiskt en datakälla: fliken läggs in i `config/relations.yaml`,
+  analysen körs och händelsen loggas. Saknar fliken en egen nyckel får den en
+  radnyckel. Det finns ingen väg där en uppladdad fil hamnar utanför pipen.
 - **Indata** — arbetsböcker och flikar som hittats i `data/` och `data/inbox/`,
   med rad- och kolumnantal.
 - **Kolumner och koppling** — kolumnprofil per datakälla (typ, distinkta värden,
@@ -120,8 +123,23 @@ Flikar:
 - **Indatarelationer** — en översikt över datakällorna och nycklarna som binder
   dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna
   kopplingar.
-- **Ändringslogg** — vad som ändrats i data sedan senast, med möjlighet att
-  filtrera per händelse och källa.
+- **Ändringslogg** — vad som ändrats sedan senast, med möjlighet att filtrera per
+  händelse, slag (data, struktur, mottagning) och källa.
 
 All beräkning sker i Python på servern; JavaScript visar bara resultatet. Det gör
 att flikarna visar exakt samma siffror som `cli profile` och testerna.
+
+## Vad som händer när en fil laddas upp
+
+1. Filen sparas i `data/inbox/`.
+2. `file_received` loggas.
+3. Flikens kolumner läses. En nyckel föreslås, och om en kolumn pekar på en
+   befintlig entitet föreslås en koppling.
+4. Posten skrivs in i `config/relations.yaml` och specen valideras. Håller den
+   inte backas skrivningen och felet rapporteras - filen ligger dock kvar.
+5. `source_declared` och eventuellt `entity_declared` loggas.
+6. De vyer som redan ritats laddas om, så att gränssnittet visar det nya läget.
+
+Om registreringen misslyckas visas det i uppladdningslistan, men filen är ändå
+mottagen. Den syns då i **Indata** men inte som källa i pipen, vilket är avsiktligt:
+ett fel ska vara synligt, inte tystas genom att filen försvinner.

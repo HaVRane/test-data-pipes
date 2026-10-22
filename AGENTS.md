@@ -36,12 +36,16 @@ UPDATE_GOLDEN=1 python -m pytest tests/test_golden.py     # uppdatera golden-fil
 
 ## Så lägger du till en ny källa
 
+I praktiken gör uppladdningen detta åt dig: `register_source` skriver in posten i
+`config/relations.yaml`, validerar och loggar. Stegen nedan är vad som händer,
+och vad du gör manuellt om registreringen inte räcker.
+
 1. Kör `cli profile` och läs beviset: nyckelkandidat, täckning, kardinalitet,
    antal nycklar utan match. Ändra inget förrän du förstår siffrorna.
 2. Om det behövs en ny entitet: lägg till den under `entities:` med sin nyckel.
 3. Lägg till källan under `sources:` med `entity`, `columns` och, om den pekar på
    en annan entitet, en post under `relationships` (`to`, `via`, `cardinality`,
-   `orphans`).
+   `orphans`). Saknar fliken en egen nyckel, sätt `row_key`.
 4. Lägg till entiteten i `include:` för det bygge som ska berikas.
 5. Lägg till en fixture i `tests/fixtures.py` och ett test i
    `tests/test_engine.py` som bevisar att källan faktiskt bidrar med data.
@@ -57,6 +61,15 @@ UPDATE_GOLDEN=1 python -m pytest tests/test_golden.py     # uppdatera golden-fil
   att en felaktig koppling går rött i stället för att tyst blåsa upp radantalet.
 - **En entitet som inte går att nå från basen ska avvisas**, inte ignoreras.
   `load_relation_spec` gör detta; försvaga inte den kontrollen.
+- **Varje uppladdad fil ska bli en källa.** Det finns ingen ignorerad fil. Saknar
+  fliken en egen nyckel får den en `row_key` - inte en plats i en undantagslista.
+- **Skrivningen av specen ska vara kirurgisk.** `register_source` bygger block och
+  sätter in dem på rätt rad, i stället för att skriva om filen med ruamel. Skälet
+  är att ruamel fäster sektionskommentarerna på sektionens *sista* post: en ny
+  post hamnar då under fel rubrik och diffen blir missvisande. Infoga nedifrån och
+  upp (`builds` före `sources`), annars förskjuts radnumren.
+- **En post som inte validerar skrivs aldrig.** Skrivningen backas och felet når
+  anroparen. En trasig spec på disk är värre än ett felmeddelande.
 - **Testdata byggs i kod** (`tests/fixtures.py`). Checka aldrig in `.xlsx`.
 - **Inga mockar.** Testerna kör riktig pandas/openpyxl mot temporära filer.
 - **Golden-filen är ett kontrakt.** Ändrar du den måste diffen förklaras.
@@ -100,6 +113,15 @@ någon öppnar filen. Se `docs/andringslogg.md`.
 
 Två filer: `state/changelog.ndjson` (läsbar historik, append-only) och
 `state/sources.json` (senast kända fingeravtryck). `state/` är gitignorerad.
+
+Varje händelse har ett **slag** (`kind`): `data`, `structure` eller `ingest`. Alla
+hamnar i samma flöde, i tidsordning, så en enda läsning ger hela historiken - när
+filen kom in, vad den innehöll och hur pipen byggdes om för att ta emot den.
+
+Strukturhändelserna (`source_declared`, `entity_redefined`, `build_redefined`
+med flera) beskriver specen. De svarar på frågan "hur har dataflödet förändrats?",
+vilket är vad en agent behöver veta innan den rör något. De jämförs mot en
+strukturbild som sparas i `state/sources.json` under nyckeln `structure`.
 
 Viktigt för agenter: lägg aldrig affärslogik i `watch`. Den beskriver att något
 ändrats, inte om ändringen är önskvärd. Domen ligger i testerna.
@@ -161,3 +183,18 @@ en identifierare. En kolumn som faktiskt används i en koppling listas som nycke
 - Kopplingsförslag (`joins.rank_join_candidates`) väger unikhet och namnledtrådar
   tyngre än täckning. En datumkolumn med identiska värden över båda tabellerna
   får 100 % täckning men är inte en nyckel. Lita inte på täckning ensam.
+- Ordningen i registreringen är inte valfri: kopplingen söks **före** egennyckeln.
+  En tabell med både `supplier_id` och `customer_id` ska bli entiteten `supplier`
+  med en koppling till `customer`. Söks egennyckeln först blir `supplier_id` en
+  "främmande nyckel" mot en entitet som inte finns, och tabellen hamnar fel.
+- Är den enda kandidatnyckeln referensen till en befintlig entitet är fliken
+  **ännu en källa för samma entitet**, inte en ny entitet som pekar på den.
+  Referensen till sig själv är ingen relation.
+- `ruamel` fäster en sektions rubrikkommentar på sektionens sista post. Lägger man
+  en post via ruamel hamnar den under fel rubrik. Därför byggs blocken som text och
+  sätts in på radnummer ur `structure.lc.data[sektion][0]`, och insättningen sker
+  nedifrån och upp.
+- `Path.relative_to` ger fel sökväg om man lägger på `../` manuellt - djupet
+  varierar. Använd `os.path.relpath` mot specens katalog.
+- En kolumnmappning måste vara injektiv: `Belopp` och `belopp` normaliseras båda
+  till `belopp`. Utan avkollision skriver den ena tyst över den andra.

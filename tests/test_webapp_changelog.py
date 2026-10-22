@@ -131,8 +131,11 @@ def test_changelog_endpoint_is_empty_before_first_watch(server):
 def test_watch_endpoint_creates_baseline(server):
     status, payload = post(server, "/watch")
     assert status == 200
-    assert payload["events_written"] == 3
-    kinds = [e["event"] for e in payload["new_events"]]
+    # Baslinjen består av tre datahändelser (källorna) och strukturhändelserna
+    # för specen. Här avses datahändelserna.
+    data_events = [e for e in payload["new_events"] if e["kind"] == "data"]
+    assert len(data_events) == 3
+    kinds = [e["event"] for e in data_events]
     assert kinds == ["source_added"] * 3
     assert sorted(payload["sources"]) == ["customers", "orders", "regions"]
 
@@ -237,4 +240,5 @@ def test_web_and_cli_share_the_same_log(server):
     via_file = [e["event"] for e in log.read_events()]
     via_web = [e["event"] for e in get(server, "/changelog")["events"]]
     assert via_file == list(reversed(via_web))
-    assert sorted(via_file) == ["source_added"] * 3
+    data_events = [e for e in log.read_events() if e["kind"] == "data"]
+    assert sorted(e["event"] for e in data_events) == ["source_added"] * 3

@@ -36,7 +36,54 @@ UNCHANGED = "source_unchanged"
 UNREADABLE = "source_unreadable"
 RECOVERED = "source_recovered"
 
-EVENT_TYPES = (ADDED, REMOVED, CHANGED, UNCHANGED, UNREADABLE, RECOVERED)
+# Strukturhändelser: hur pipen själv förändras. Datan kan vara oförändrad
+# samtidigt som en källa läggs till, byter nyckel eller stryks ur specen.
+DECLARED = "source_declared"
+UNDECLARED = "source_undeclared"
+REDEFINED = "source_redefined"
+ENTITY_DECLARED = "entity_declared"
+ENTITY_UNDECLARED = "entity_undeclared"
+ENTITY_REDEFINED = "entity_redefined"
+BUILD_REDEFINED = "build_redefined"
+
+# Mottagningshändelse: en fil har kommit in i systemet.
+FILE_RECEIVED = "file_received"
+
+# De tre slagen av händelser. Loggen är en enda ström, men varje rad tillhör
+# ett slag, så att gränssnittet kan filtrera utan att känna till varje namn:
+#   data      - innehållet i en källa har ändrats
+#   structure - pipens uppbyggnad har ändrats (specen)
+#   ingest    - en fil har tagits emot
+DATA = "data"
+STRUCTURE = "structure"
+INGEST = "ingest"
+
+KINDS = (DATA, STRUCTURE, INGEST)
+
+DATA_EVENTS = (ADDED, REMOVED, CHANGED, UNCHANGED, UNREADABLE, RECOVERED)
+STRUCTURE_EVENTS = (
+    DECLARED,
+    UNDECLARED,
+    REDEFINED,
+    ENTITY_DECLARED,
+    ENTITY_UNDECLARED,
+    ENTITY_REDEFINED,
+    BUILD_REDEFINED,
+)
+INGEST_EVENTS = (FILE_RECEIVED,)
+
+EVENT_TYPES = DATA_EVENTS + STRUCTURE_EVENTS + INGEST_EVENTS
+
+# Slaget för varje händelsetyp. Används för att läsa en logg som skrevs innan
+# fältet ``kind`` fanns: äldre rader saknar det och slaget härleds då ur namnet.
+KIND_OF = {**{name: DATA for name in DATA_EVENTS},
+           **{name: STRUCTURE for name in STRUCTURE_EVENTS},
+           **{name: INGEST for name in INGEST_EVENTS}}
+
+
+def kind_of(event: str) -> str:
+    """Slaget för en händelse, med hänsyn till äldre rader utan ``kind``."""
+    return KIND_OF.get(event, DATA)
 
 # Hur mycket av fingeravtrycket som visas i loggen. Tillräckligt för att skilja
 # två versioner åt, kort nog att loggen förblir läsbar.
@@ -55,15 +102,25 @@ def utc_now() -> str:
 
 @dataclass(frozen=True)
 class ChangeEvent:
-    """En ändring i datat, med tidpunkt och orsak."""
+    """En ändring i datat eller i pipens struktur, med tidpunkt och orsak."""
 
     timestamp: str
     event: str
     source: str
     details: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def kind(self) -> str:
+        return kind_of(self.event)
+
     def as_dict(self) -> dict[str, Any]:
-        return {"timestamp": self.timestamp, "event": self.event, "source": self.source, **self.details}
+        return {
+            "timestamp": self.timestamp,
+            "kind": self.kind,
+            "event": self.event,
+            "source": self.source,
+            **self.details,
+        }
 
     def describe(self) -> str:
         """En läsbar rad för utskrift i terminalen."""
@@ -93,7 +150,38 @@ class ChangeEvent:
             return f"! {self.source} kunde inte läsas ({self.details.get('error', 'okänt fel')})"
         if self.event == RECOVERED:
             return f"✓ {self.source} läsbar igen ({self.details.get('rows', '?')} rader)"
+        if self.event == DECLARED:
+            return f"+ {self.source} inlagd i specen ({self._spec_summary()})"
+        if self.event == UNDECLARED:
+            return f"- {self.source} struken ur specen"
+        if self.event == REDEFINED:
+            changes = self.details.get("changes") or []
+            return f"~ {self.source} omdefinierad ({'; '.join(changes) or 'ändrad'})"
+        if self.event == ENTITY_DECLARED:
+            return f"+ entiteten {self.source} tillagd ({self._spec_summary()})"
+        if self.event == ENTITY_UNDECLARED:
+            return f"- entiteten {self.source} borttagen ur specen"
+        if self.event == ENTITY_REDEFINED:
+            changes = self.details.get("changes") or []
+            return f"~ entiteten {self.source} omdefinierad ({'; '.join(changes) or 'ändrad'})"
+        if self.event == BUILD_REDEFINED:
+            changes = self.details.get("changes") or []
+            return f"~ bygget {self.source} omdefinierat ({'; '.join(changes) or 'ändrat'})"
+        if self.event == FILE_RECEIVED:
+            size = self.details.get("bytes")
+            return f"↓ {self.source} togs emot ({size} byte)" if size is not None else f"↓ {self.source} togs emot"
         return f"= {self.source} oförändrad"
+
+    def _spec_summary(self) -> str:
+        """Kort sammanfattning av en spec-post, för läsbara rader."""
+        parts = []
+        if self.details.get("path"):
+            parts.append(str(self.details["path"]))
+        if self.details.get("sheet"):
+            parts.append(f"flik {self.details['sheet']}")
+        if self.details.get("entity"):
+            parts.append(f"entitet {self.details['entity']}")
+        return ", ".join(parts) or "okänt innehåll"
 
 
 def diff_fingerprints(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
@@ -247,11 +335,177 @@ def detect_changes(
     return events
 
 
+def spec_snapshot(spec) -> dict[str, Any]:
+    """En jämförbar bild av specens uppbyggnad.
+
+    Fingeravtryck för data svarar på "har innehållet ändrats?". Den här bilden
+    svarar på den andra frågan: "har pipens struktur ändrats?" - vilka källor som
+    ingår, vilka nycklar de använder och vad byggena producerar.
+
+    Bilden är avsiktligt läsbar JSON, inte en hash: när något ändrats ska loggen
+    kunna säga *vad* som ändrats, inte bara att något gjort det.
+    """
+    return {
+        "sources": {
+            s.name: {
+                "path": str(s.path),
+                "sheet": s.sheet,
+                "entity": s.entity,
+                "columns": dict(s.columns),
+                "dtypes": dict(s.dtypes),
+                "relationships": [
+                    {"to": r.to, "via": r.via, "cardinality": r.cardinality, "orphans": r.orphans}
+                    for r in s.relationships
+                ],
+            }
+            for s in spec.sources
+        },
+        "entities": {
+            name: {"key": e.key, "description": e.description}
+            for name, e in spec.entities.items()
+        },
+        "builds": {
+            b.name: {
+                "base": b.base,
+                "include": list(b.include),
+                "output": str(b.output),
+                "sheet": b.sheet,
+                "columns": list(b.columns) if b.columns else None,
+            }
+            for b in spec.builds
+        },
+    }
+
+
+def _source_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """Vad som skiljer två källposter åt, i mänskliga termer."""
+    changes: list[str] = []
+    for field, label in (("path", "sökväg"), ("sheet", "flik"), ("entity", "entitet")):
+        if before.get(field) != after.get(field):
+            changes.append(f"{label}: {before.get(field)} -> {after.get(field)}")
+
+    columns_before = before.get("columns") or {}
+    columns_after = after.get("columns") or {}
+    for column in sorted(set(columns_after) - set(columns_before)):
+        changes.append(f"kolumnen '{column}' tillagd -> {columns_after[column]}")
+    for column in sorted(set(columns_before) - set(columns_after)):
+        changes.append(f"kolumnen '{column}' borttagen")
+    for column in sorted(set(columns_before) & set(columns_after)):
+        if columns_before[column] != columns_after[column]:
+            changes.append(f"kolumnen '{column}' mappas nu till '{columns_after[column]}'")
+
+    for column in sorted(set(after.get("dtypes") or {}) - set(before.get("dtypes") or {})):
+        changes.append(f"typ satt för '{column}': {(after.get('dtypes') or {})[column]}")
+    for column in sorted(set(before.get("dtypes") or {}) - set(after.get("dtypes") or {})):
+        changes.append(f"typ borttagen för '{column}'")
+
+    def _rel_key(rel: dict[str, Any]) -> str:
+        return f"{rel.get('to')}/{rel.get('via')}"
+
+    rels_before = {_rel_key(r): r for r in (before.get("relationships") or [])}
+    rels_after = {_rel_key(r): r for r in (after.get("relationships") or [])}
+    for key in sorted(set(rels_after) - set(rels_before)):
+        rel = rels_after[key]
+        changes.append(
+            f"relation till {rel.get('to')} via {rel.get('via')} tillagd "
+            f"({rel.get('cardinality')}, orphans={rel.get('orphans')})"
+        )
+    for key in sorted(set(rels_before) - set(rels_after)):
+        changes.append(f"relation till {rels_before[key].get('to')} via {rels_before[key].get('via')} borttagen")
+    for key in sorted(set(rels_before) & set(rels_after)):
+        old, new = rels_before[key], rels_after[key]
+        if old.get("cardinality") != new.get("cardinality"):
+            changes.append(
+                f"kardinalitet för {new.get('via')}: {old.get('cardinality')} -> {new.get('cardinality')}"
+            )
+        if old.get("orphans") != new.get("orphans"):
+            changes.append(f"orphans för {new.get('via')}: {old.get('orphans')} -> {new.get('orphans')}")
+    return changes
+
+
+def detect_structure_changes(
+    snapshot: dict[str, Any],
+    state: dict[str, Any],
+    timestamp: str,
+) -> list[ChangeEvent]:
+    """Jämför specens struktur mot senast kända bild och beskriv skillnaderna.
+
+    Detta är den del av loggen som besvarar frågan "hur har datapipen förändrats
+    över tid?" - till skillnad från datahändelserna, som bara säger att
+    innehållet i en redan känd källa har ändrats.
+
+    Saknas en tidigare bild (första körningen, eller en logg skriven innan
+    strukturhändelserna fanns) rapporteras varje källa och entitet som inlagd.
+    Det är riktigt: vi vet att de finns nu och har ingen tidigare kunskap.
+    """
+    previous = state.get("structure") or {}
+    prev_sources = previous.get("sources") or {}
+    prev_entities = previous.get("entities") or {}
+    prev_builds = previous.get("builds") or {}
+
+    now_sources = snapshot.get("sources") or {}
+    now_entities = snapshot.get("entities") or {}
+    now_builds = snapshot.get("builds") or {}
+
+    events: list[ChangeEvent] = []
+
+    for name in sorted(now_sources):
+        after = now_sources[name]
+        before = prev_sources.get(name)
+        if before is None:
+            events.append(ChangeEvent(timestamp, DECLARED, name, dict(after)))
+        elif before != after:
+            changes = _source_changes(before, after)
+            if changes:
+                events.append(ChangeEvent(timestamp, REDEFINED, name, {"changes": changes}))
+    for name in sorted(set(prev_sources) - set(now_sources)):
+        events.append(ChangeEvent(timestamp, UNDECLARED, name, {"last_known": prev_sources[name]}))
+
+    for name in sorted(now_entities):
+        after = now_entities[name]
+        before = prev_entities.get(name)
+        if before is None:
+            events.append(ChangeEvent(timestamp, ENTITY_DECLARED, name, dict(after)))
+        elif before != after:
+            changes = []
+            if before.get("key") != after.get("key"):
+                changes.append(f"nyckel: {before.get('key')} -> {after.get('key')}")
+            if before.get("description") != after.get("description"):
+                changes.append("beskrivningen har ändrats")
+            if changes:
+                events.append(ChangeEvent(timestamp, ENTITY_REDEFINED, name, {"changes": changes}))
+    for name in sorted(set(prev_entities) - set(now_entities)):
+        events.append(ChangeEvent(timestamp, ENTITY_UNDECLARED, name, {"last_known": prev_entities[name]}))
+
+    for name in sorted(now_builds):
+        after = now_builds[name]
+        before = prev_builds.get(name)
+        if before is None:
+            events.append(ChangeEvent(timestamp, BUILD_REDEFINED, name, {"changes": ["bygget tillagt"], **after}))
+            continue
+        if before == after:
+            continue
+        changes = []
+        if before.get("base") != after.get("base"):
+            changes.append(f"bas: {before.get('base')} -> {after.get('base')}")
+        if before.get("include") != after.get("include"):
+            changes.append(f"inkluderar: {before.get('include')} -> {after.get('include')}")
+        if before.get("columns") != after.get("columns"):
+            changes.append("utdatakolumnerna har ändrats")
+        if before.get("output") != after.get("output") or before.get("sheet") != after.get("sheet"):
+            changes.append("utdatafilen har ändrats")
+        if changes:
+            events.append(ChangeEvent(timestamp, BUILD_REDEFINED, name, {"changes": changes}))
+
+    return events
+
+
 def next_state(
     current: dict[str, dict[str, Any]],
     state: dict[str, Any],
     timestamp: str,
     unreadable: dict[str, str] | None = None,
+    structure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bygg det nya tillståndet: källor som finns nu, med tidpunkt för senaste ändring.
 
@@ -264,6 +518,9 @@ def next_state(
     tillståndet. Den finns inte längre, och då ska den inte finnas kvar i
     modellen - precis som om posten struktis ur specen. Kommer filen tillbaka
     rapporteras den därför som tillagd, inte som återställd.
+
+    ``structure`` är specens bild. Den sparas i tillståndet så att nästa körning
+    kan avgöra vad som ändrats i pipens uppbyggnad.
     """
     previous = dict(state.get("sources") or {})
     unreadable = unreadable or {}
@@ -293,4 +550,10 @@ def next_state(
         entry["unreadable_error"] = unreadable[name]
         sources[name] = entry
 
-    return {"version": 1, "sources": sources, "updated_at": timestamp}
+    result: dict[str, Any] = {"version": 1, "sources": sources, "updated_at": timestamp}
+    if structure is not None:
+        result["structure"] = structure
+    elif "structure" in state:
+        # Behåll senast kända struktur när anroparen inte har någon att ge oss.
+        result["structure"] = state["structure"]
+    return result

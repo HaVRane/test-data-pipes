@@ -51,15 +51,49 @@ ut underlaget och ett utkast till spec-post där kardinalitet och orphaning-poli
 
 ## Arbetsflödet när en ny källa ska in
 
-1. Agenten profilerar den nya källan mot befintliga: `cli profile`.
-2. Agenten föreslår en ändring i `config/relations.yaml` som en diff.
-3. Testerna avgör om ändringen är rimlig: kan den kopplas in, blir kardinaliteten
+1. Filen laddas upp till `data/inbox/`.
+2. `register_source` läser flikens kolumner, föreslår en nyckel och en koppling,
+   och skriver in posten i `config/relations.yaml`.
+3. Specen laddas om och valideras. En post som inte håller skrivs aldrig.
+4. Händelsen loggas: `file_received`, `source_declared` och eventuellt
+   `entity_declared`.
+5. Testerna avgör om ändringen är rimlig: kan den kopplas in, blir kardinaliteten
    vad den ska, ändras golden-filen på ett förklarligt sätt?
-4. En människa granskar diffen, särskilt kardinalitet och orphaning-policy.
+6. En människa granskar diffen i `relations.yaml`, särskilt kardinalitet och
+   orphaning-policy.
 
-Punkt 3 är den viktiga. Specen är ett kontrakt som testerna bevakar. En agent kan
-därför prova sig fram utan att kunna smyga in en felaktig koppling: antingen
-håller den, eller så går ett test rött och visar exakt var.
+Steg 2 gör att en uppladdad fil alltid blir en källa. Det finns ingen väg där en
+fil hamnar i `data/inbox/` utan att synas i pipen. Steg 3 och 5 är det som gör
+automatiken försvarlig: skrivningen valideras mot kontraktet, och testerna
+bevakar att kontraktet fortfarande betyder något.
+
+## Nycklar som maskinen får och inte får bestämma
+
+Maskinen får bestämma **vilken kolumn som identifierar en rad**: en kolumn som är
+unik och saknar nollvärden duger, och ett namn som slutar på `_id`, `_nr` eller
+`_kod` väger tyngre än andra. Det är en egenskap hos datat och går att avgöra.
+
+Maskinen får inte bestämma **kardinalitet**. Att två kolumner överlappar säger
+inget om affärsreglerna: en kund kan ha flera ordrar även om just detta utdrag
+råkar ha en order per kund. Därför skriver registreringen `many_to_one` - den
+säkra läsningen av en referens till en befintlig entitet - och märker raden med
+en kommentar om att den ska bekräftas. Se avsnittet nedan.
+
+Maskinen får inte heller bestämma **orphaning-policy**. Den skriver `keep`, som
+bevarar alla rader, och en människa ändrar till `drop` eller `flag` om det är fel
+för verksamheten.
+
+## När fliken saknar egen nyckel
+
+En flik utan unik kolumn - en logg, en lista med fritext - får en `row_key`:
+radens nummer i fliken. Den blir en källa som alla andra, med en surrogatnyckel i
+stället för en naturlig. Utan den vore valet att antingen ignorera filen, vilket
+strider mot att varje uppladdad fil ska bli en källa, eller att tyst hitta på en
+nyckel ur en kolumn som inte är unik, vilket ger felaktiga kopplingar.
+
+En surrogatnyckel identifierar en *rad*, inte ett *begrepp*. Den duger för att
+läsa och bygga med fliken, men den kan inte användas för att koppla ihop fliken
+med något annat.
 
 ## Varför inte automatisk nyckeldetektering som sanning
 
@@ -68,3 +102,59 @@ användbart som förslag och farligt som sanning. Två kolumner med 100 procents
 överlapp kan fortfarande betyda olika saker, och en koppling som ser bra ut i
 testdata kan vara fel i skarp data. Därför ligger gissningen i `profile`, medan
 beslutet ligger i specen och granskas som en diff.
+
+## Ett exempel: en ny fil blir en källa
+
+Utgångsläget är en spec med entiteterna `customer` och `order`. En fil,
+`Leverantorer.xlsx`, laddas upp med fliken `Suppliers` och kolumnerna
+`supplier_id`, `customer_id`, `supplier_name`.
+
+Registreringen gör följande:
+
+- `supplier_id` är unik och slutar på `_id`, så den blir källans nyckel.
+- `customer_id` matchar `customer`-entitetens nyckel i alla rader, så den blir en
+  koppling dit. Källans egen nyckel hoppas över när kopplingen söks.
+- Nyckelns rot `supplier` blir ett nytt entitetsnamn.
+- Kardinaliteten sätts till `many_to_one` och märks som obekräftad.
+
+Resultatet i `relations.yaml` - bara tillägg, inga omformateringar:
+
+```yaml
+  supplier:
+    key: supplier_id
+    description: En rad per supplier_id i Leverantorer.xlsx.
+```
+
+```yaml
+  - name: leverantorer
+    path: ../data/inbox/Leverantorer.xlsx
+    sheet: Suppliers
+    entity: supplier
+    columns:
+      supplier_id: supplier_id
+      customer_id: customer_id
+      supplier_name: supplier_name
+    relationships:
+      - to: customer
+        via: customer_id
+        cardinality: many_to_one  # maskinellt föreslagen - bekräfta mot verksamheten
+        orphans: keep
+```
+
+Två saker att lägga märke till. Kommentaren på `cardinality` är kvar i filen, så
+den som granskar diffen ser direkt vilket beslut som är maskinens förslag och
+vilket som är människans. Och `orphans: keep` bevarar alla rader - ingen data
+försvinner för att en koppling saknas.
+
+Saknade fliken en unik kolumn hade posten i stället fått en `row_key`, och
+entiteten hade döpts efter fliken.
+
+## Vad testerna bevakar
+
+- Att kommentarerna i specen överlever en skrivning.
+- Att bara det nya blocket tillkommer - inte en omformaterad fil.
+- Att en post som inte validerar lämnar filen orörd.
+- Att en flik utan egen nyckel ändå blir en källa, med radnyckel.
+- Att en koppling bara läggs till när nycklarna matchar utan föräldralösa rader.
+- Att en källa som lagts in går att läsa och bygga med, inte bara står i specen.
+

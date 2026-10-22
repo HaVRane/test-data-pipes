@@ -53,6 +53,11 @@ class SourceSpec:
     columns: dict[str, str]
     dtypes: dict[str, str] = field(default_factory=dict)
     relationships: list[Relationship] = field(default_factory=list)
+    # Namn på en kolumn som genereras som radnummer, när fliken saknar en egen
+    # nyckel. Utan den vore sådana flikar omöjliga att lägga in i pipen, och en
+    # källa skulle tyst kunna försvinna. Nyckeln är en surrogatnyckel: den
+    # identifierar en rad, inte ett begrepp.
+    row_key: str | None = None
 
     @property
     def required_input_columns(self) -> list[str]:
@@ -61,7 +66,10 @@ class SourceSpec:
 
     @property
     def output_columns(self) -> list[str]:
-        return list(self.columns.values())
+        columns = list(self.columns.values())
+        if self.row_key and self.row_key not in columns:
+            columns.insert(0, self.row_key)
+        return columns
 
 
 @dataclass(frozen=True)
@@ -155,6 +163,7 @@ def _parse_source(raw: dict[str, Any], index: int) -> SourceSpec:
         dtypes={str(k): str(v) for k, v in (raw.get("dtypes") or {}).items()},
         relationships=[_parse_relationship(r, f"{ctx}.relationships[{i}]")
                        for i, r in enumerate(raw.get("relationships") or [])],
+        row_key=str(raw["row_key"]) if raw.get("row_key") else None,
     )
 
 

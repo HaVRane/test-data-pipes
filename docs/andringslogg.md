@@ -23,6 +23,10 @@ python -m excel_merge.cli watch --verbose                 # logga även oförän
 
 ## Händelser
 
+Varje händelse har ett **slag** (`kind`) som säger vad den handlar om.
+
+### Slag: `data` - ändringar i innehållet
+
 | Händelse | Betyder |
 |---|---|
 | `source_added` | källan finns men har inte setts förut |
@@ -31,6 +35,36 @@ python -m excel_merge.cli watch --verbose                 # logga även oförän
 | `source_unchanged` | innehållet är identiskt (endast med `--verbose`) |
 | `source_unreadable` | filen finns men kunde inte läsas |
 | `source_recovered` | källan gick inte att läsa förra körningen men gör det nu |
+
+### Slag: `structure` - ändringar i pipens uppbyggnad
+
+Dessa beskriver specen, inte datat. De svarar på frågan "hur har dataflödet
+förändrats?", vilket är precis vad en agent behöver veta innan den rör något.
+
+| Händelse | Betyder |
+|---|---|
+| `source_declared` | en källa har lagts in i `relations.yaml` |
+| `source_undeclared` | en källa har strukits ur specen |
+| `source_redefined` | källans nyckel, kolumner eller typer har ändrats |
+| `entity_declared` | en ny entitet har definierats |
+| `entity_undeclared` | en entitet har tagits bort |
+| `entity_redefined` | entitetens nyckel eller beskrivning har ändrats |
+| `build_redefined` | ett bygge har ändrats (bas, urval eller kolumner) |
+
+### Slag: `ingest` - filer som kommit in
+
+| Händelse | Betyder |
+|---|---|
+| `file_received` | en fil har laddats upp till `data/inbox/` |
+
+## Ett flöde, tre slag
+
+Alla händelser hamnar i samma fil, `state/changelog.ndjson`, i tidsordning. Det
+gör att en enda läsning ger hela historiken: när filen kom in (`ingest`), vad den
+innehöll (`data`) och hur pipen byggdes om för att ta emot den (`structure`).
+Alternativet - en logg per slag - hade tvingat varje läsare att själv lägga ihop
+tidslinjen, och då hade ordningen mellan "filen kom" och "källan lades in"
+kunnat gå förlorad.
 
 ## Saknad fil och trasig fil är inte samma sak
 
