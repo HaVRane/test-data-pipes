@@ -62,6 +62,33 @@ python scripts/inspect_uploads.py data/inbox --reference data/customers.xlsx
 Då visas även kandidatkoppling med täckning, föräldralösa nycklar och föreslagen
 kardinalitet — samma bevis som `cli profile`, men för en fil i taget.
 
+## Enklaste vägen: uppladdningssidan
+
+GUI:ts uppladdning krånglar. Därför finns en liten tillfällig webbsida där du
+drar in filerna. Den skriver till `data/inbox/` och kräver en nyckel i URL:en.
+
+```bash
+python scripts/upload_server.py --directory data/inbox --port 12000
+```
+
+Skriptet skriver ut en URL med nyckel, ungefär:
+
+```
+http://0.0.0.0:12000/?key=<slumpad nyckel>
+```
+
+I den här sandboxen nås port 12000 utifrån som:
+
+```
+https://work-1-geobaeplpkwzfkiz.prod-runtime.all-hands.dev/?key=<nyckel>
+```
+
+Öppna adressen i webbläsaren och dra in dina Excel-filer. Sidan visar vad som
+mottagits. Stäng servern (Ctrl+C) när filerna är överförda.
+
+Skyddet: slumpad nyckel krävs, bara kalkylarksändelser accepteras, filnamnet
+tvättas så ingen kan skriva utanför katalogen, och det finns en storleksgräns.
+
 ## Om uppladdningen ändå strular
 
 Klistra in fliknamn och kolumnrubriker i chatten i stället. Det räcker för att
