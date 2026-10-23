@@ -27,8 +27,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pandas as pd
 
 from excel_merge.changelog import ChangeLog
-from excel_merge.joins import looks_like_measure, rank_join_candidates
-from excel_merge.profile import column_stats, compare_keys
+from excel_merge.joins import candidate_key_columns, is_key_candidate, rank_join_candidates
+from excel_merge.profile import column_stats
 
 ALLOWED_SUFFIXES = {".xlsx", ".xls", ".xlsm", ".csv"}
 MAX_BYTES = 25 * 1024 * 1024
@@ -808,7 +808,7 @@ def build_column_report(data_dir: Path, max_candidates: int = 3) -> dict:
                     "dtype": stats.dtype,
                     "distinct": stats.distinct,
                     "nulls": stats.nulls,
-                    "candidate_key": stats.is_candidate_key,
+                    "candidate_key": is_key_candidate(frame, column),
                 }
             )
         sources.append({"name": name, "file": file_name, "sheet": sheet, "columns": columns})
@@ -858,12 +858,7 @@ def build_relationship_map(data_dir: Path, max_edges_per_pair: int = 2) -> dict:
 
     nodes = []
     for file_name, sheet, name, frame in frames:
-        keys = [
-            str(column)
-            for column in frame.columns
-            if column_stats(frame[column], name=str(column)).is_candidate_key
-            and not looks_like_measure(str(column))
-        ]
+        keys = candidate_key_columns(frame)
         nodes.append(
             {
                 "id": name,

@@ -6,6 +6,8 @@ import pandas as pd
 
 from excel_merge.joins import (
     best_join,
+    candidate_key_columns,
+    is_key_candidate,
     looks_like_identifier,
     looks_like_measure,
     rank_join_candidates,
@@ -69,6 +71,25 @@ def test_measure_and_identifier_are_separate_questions():
     """
     assert looks_like_identifier("Arbetskod")
     assert looks_like_measure("Arbetskod")
+
+
+def test_measure_column_is_not_a_key_candidate():
+    """Ett mått är unikt av en slump i små data och ska inte bli nyckel."""
+    frame = pd.DataFrame({"order_id": [10, 11, 12], "belopp": [100, 200, 300]})
+    assert is_key_candidate(frame, "order_id")
+    assert not is_key_candidate(frame, "belopp")
+
+
+def test_candidate_key_columns_ranks_identifier_first():
+    """Identifieraren ska väljas före en måttkolumn, oavsett bokstavsordning."""
+    frame = pd.DataFrame(
+        {
+            "Lanskod": [1, 3, 4],
+            "Lansnamn": ["a", "b", "c"],
+            "Befolkning_2025_12_31": [2486251, 410575, 300440],
+        }
+    )
+    assert candidate_key_columns(frame)[0] == "Lanskod"
 
 
 def test_shared_date_column_is_downgraded():

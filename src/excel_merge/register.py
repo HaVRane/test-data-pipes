@@ -33,11 +33,9 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from excel_merge.io import SourceReadError, read_raw_sheet
 from excel_merge.joins import (
     IDENTIFIER_HINTS,
-    looks_like_identifier,
-    looks_like_measure,
+    candidate_key_columns,
     rank_join_candidates,
 )
-from excel_merge.profile import column_stats
 from excel_merge.relations import RelationSpecError, load_relation_spec
 
 
@@ -105,22 +103,12 @@ def candidate_keys(frame, mapping: dict[str, str]) -> list[str]:
     Kolumner vars namn antyder ett mått eller en tidpunkt väljs bort - ett belopp
     kan vara unikt av en slump utan att identifiera en rad.
 
-    En kolumn vars namn antyder en identifierare rangordnas först. Bedömningen
-    görs med samma delsträngslogik som kopplingsrangordningen använder, så att
-    svenska sammansättningar som ``Lanskod`` och ``Kundnummer`` räknas som
-    identifierare. Utan den vinner en måttkolumn på bokstavsordning: i
-    ``Länsinfo`` står ``Befolkning_2025_12_31`` före ``Lanskod``.
+    Bedömningen görs av ``joins.candidate_key_columns``, som är den enda platsen
+    som avgör frågan. Här översätts bara kolumnnamnen till sina mappade namn, så
+    att registreringen och applikationens vyer alltid svarar likadant.
     """
-    found: list[tuple[int, str]] = []
-    for original, output in mapping.items():
-        if looks_like_measure(str(original)):
-            continue
-        stats = column_stats(frame[original], name=output)
-        if not stats.is_candidate_key:
-            continue
-        priority = 0 if looks_like_identifier(str(output)) else 1
-        found.append((priority, output))
-    return [name for _, name in sorted(found)]
+    ordered = candidate_key_columns(frame)
+    return [mapping[name] for name in ordered if name in mapping]
 
 
 def entity_of_key(key: str) -> str:

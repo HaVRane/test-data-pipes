@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from webapp import (  # noqa: E402
     PAGE,
     build_column_report,
+    build_relationship_map,
     collect_sources,
     safe_name,
 )
@@ -120,6 +121,38 @@ def test_collect_sources_ignores_non_spreadsheets(tmp_path):
     (isa / "anteckning.txt").write_text("nej", encoding="utf-8")
     (isa / "README.md").write_text("nej", encoding="utf-8")
     assert collect_sources(isa) == []
+
+
+def test_column_report_and_map_agree_on_the_same_column(tmp_path):
+    """De två vyerna ska svara likadant om samma kolumn.
+
+    Kolumnrapporten visade ``belopp`` som möjlig nyckel medan källkartan inte
+    gjorde det - i samma applikation, på samma data. Båda hämtar nu svaret från
+    ``joins.is_key_candidate``, så de kan inte glida isär igen.
+    """
+    isa = _isa(tmp_path)
+    write_workbook(
+        isa / "ordrar.xlsx",
+        {
+            "Ordrar": pd.DataFrame({
+                "order_id": [10, 11, 12],
+                "belopp": [100, 200, 300],
+                "order_date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            })
+        },
+    )
+
+    report = build_column_report(tmp_path / "data" / "isa")
+    source = next(s for s in report["sources"] if s["sheet"] == "Ordrar")
+    in_report = {c["name"] for c in source["columns"] if c["candidate_key"]}
+
+    node = next(n for n in build_relationship_map(tmp_path / "data" / "isa")["nodes"])
+    in_map = set(node["candidate_keys"])
+
+    assert in_report == in_map, "kolumnrapporten och kartan måste ge samma svar"
+    assert "order_id" in in_report
+    assert "belopp" not in in_report
+    assert "order_date" not in in_report
 
 
 def test_collect_sources_survives_corrupt_file(tmp_path):

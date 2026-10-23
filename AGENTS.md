@@ -251,6 +251,13 @@ tvingas in i en roll.
 - Kopplingsförslag (`joins.rank_join_candidates`) väger unikhet och namnledtrådar
   tyngre än täckning. En datumkolumn med identiska värden över båda tabellerna
   får 100 % täckning men är inte en nyckel. Lita inte på täckning ensam.
+- **En fråga, ett svar.** Om en kolumn kan identifiera en rad avgörs på *en*
+  plats: `joins.is_key_candidate` (predikatet) och `joins.candidate_key_columns`
+  (rangordningen). Registreringen, kolumnrapporten, källkartan och
+  inventeringsverktyget hämtar alla svaret där. Fyra egna varianter gled isär och
+  lät samma kolumn få två svar i samma applikation - kolumnrapporten visade
+  `belopp` som möjlig nyckel medan kartan inte gjorde det. Lägg inte till en
+  femte variant.
 - Nyckelbedömningen matchar **delsträng**, inte avgränsat ord. Det är avsiktligt:
   svenska kolumnnamn sätter ihop orden (`Lanskod`, `Kundnummer`, `Ordernr`). En
   ordgränsad regel hade missat dem och låtit bokstavsordningen avgöra - i
