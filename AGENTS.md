@@ -82,11 +82,33 @@ inside the conversation workspace". Be användaren ladda upp till
 `data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
 
 Webbapplikationen "Automatiserad dataplattform med övervakning" har fem flikar
-(anslut datakälla, indata, kolumner och koppling, indatarelationer, ändringslogg):
+(anslut datakälla, indata, kolumner och koppling, indatarelationer, ändringslogg).
+Starta den med skriptet:
 
 ```bash
-python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+./scripts/serve_webapp.sh
 ```
+
+Det kontrollerar beroendena, startar med `-u` och skriver ut adressen med nyckel.
+Skriptet finns för att två saker annars tyst går fel:
+
+- **Sessionens hemkatalog kan nollställas mellan tillfällen.** Då är `pandas`
+  borta trots att det fungerade förra gången, och felet ser ut som ett kodfel
+  (`ModuleNotFoundError`) fast det är miljön. Skriptet installerar `.[dev]` vid
+  behov. Ser du det felet för hand: `python -m pip install -e ".[dev]"`.
+- **Utan `-u` buffras utskrifterna.** Nyckeln skrivs ut först när bufferten töms,
+  så loggfilen ser tom ut och en lyckad start är lätt att missta för en
+  misslyckad. Skriptet väntar tills nyckeln syns i loggen.
+
+Kör hellre skriptet än kommandot för hand:
+
+```bash
+python -u scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+```
+
+Nyckeln slumpas. Porten är nåbar utifrån i den här miljön, så en fast nyckel i
+ett skript eller i git vore en öppen dörr. Skriptet skriver den bara till
+terminalen.
 
 Inventera uppladdade filer utan att skriva något:
 
@@ -106,6 +128,9 @@ det till `state/changelog.ndjson` med tidsstämpel (UTC). `log` visar historiken
 python -m excel_merge.cli watch --spec config/relations.yaml
 python -m excel_merge.cli log
 ```
+
+Starta appen med `./scripts/serve_webapp.sh`. Den startar om sig själv rent och
+skriver ut nyckeln; se avsnittet ovan.
 
 Fingeravtrycket hashar **cellvärdena**, inte filen. Excel skriver om filarkivet
 vid varje sparning utan att datan ändras; en filhash skulle larma varje gång
@@ -198,3 +223,10 @@ en identifierare. En kolumn som faktiskt används i en koppling listas som nycke
   varierar. Använd `os.path.relpath` mot specens katalog.
 - En kolumnmappning måste vara injektiv: `Belopp` och `belopp` normaliseras båda
   till `belopp`. Utan avkollision skriver den ena tyst över den andra.
+- `ModuleNotFoundError: No module named 'pandas'` betyder nästan alltid att
+  sessionens hemkatalog nollställts, inte att koden är fel. Installera om med
+  `python -m pip install -e ".[dev]"`, eller starta via `./scripts/serve_webapp.sh`
+  som gör det åt dig. Samma sak gäller `/tmp`: filer där (till exempel en
+  spec-backup) försvinner mellan tillfällen. Ta backup i `git`, inte i `/tmp`.
+- Appen skriver nyckeln med `print`. Startar man utan `-u` buffras den, och en
+  lyckad start ser ut som en tom logg. Starta via skriptet.

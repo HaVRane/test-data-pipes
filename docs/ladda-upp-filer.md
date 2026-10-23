@@ -96,19 +96,37 @@ bygga fixtures och spec-poster; verktyget ovan behöver bara kolumnnamnen, inte
 innehållet. Är uppgifterna känsliga är det till och med bättre att beskriva
 strukturen än att ladda upp filen.
 
-## Webbapplikationen med tre flikar
+## Webbapplikationen med fem flikar
 
-Den enkla uppladdningssidan är ersatt av en liten applikation:
+Den enkla uppladdningssidan är ersatt av en liten applikation. Starta den med
+skriptet:
 
 ```bash
-python scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+./scripts/serve_webapp.sh
 ```
 
-Skriptet skriver ut port och nyckel. I sandboxen nås port 12000 som:
+Skriptet installerar beroendena om de saknas och skriver ut adressen:
 
 ```
-https://work-1-geobaeplpkwzfkiz.prod-runtime.all-hands.dev/?key=<nyckel>
+  Lokalt:   http://127.0.0.1:12000/?key=<slumpad nyckel>
+  Sandlådan: https://work-1-geobaeplpkwzfkiz.prod-runtime.all-hands.dev/?key=<nyckel>
 ```
+
+Öppna sandlådans adress i webbläsaren. Nyckeln slumpas vid varje start; skriptet
+skriver den bara till terminalen. Stäng med:
+
+```bash
+pkill -f 'webapp.py .*--port 12000'
+```
+
+Vill du köra för hand i stället:
+
+```bash
+python -u scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+```
+
+`-u` behövs. Utan den buffras utskrifterna, och då syns nyckeln inte förrän
+bufferten töms - det ser ut som att starten hängde sig.
 
 Flikar:
 
