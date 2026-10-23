@@ -44,8 +44,9 @@ En agent ska inte ensam avgöra det som är affärsbeslut:
 - Vad som ska hända med rader som inte matchar. Släppa, behålla eller flagga är
   en affärsregel.
 
-Därför är verktygets utdata formulerad som bevis med en tydlig uppmaning att
-bekräfta, inte som ett färdigt svar. `python -m excel_merge.cli profile` skriver
+Därför är verktygets utdata formulerad som ett förslag med ett tydligt skäl -
+inte som ett färdigt svar. Användaren granskar resultatet och invänder om
+slutsatsen blev fel; plattformen behöver inte stanna och fråga i förväg. `python -m excel_merge.cli profile` skriver
 ut underlaget och ett utkast till spec-post där kardinalitet och orphaning-policy
 är markerade som obekräftade.
 
@@ -59,8 +60,10 @@ ut underlaget och ett utkast till spec-post där kardinalitet och orphaning-poli
    `entity_declared`.
 5. Testerna avgör om ändringen är rimlig: kan den kopplas in, blir kardinaliteten
    vad den ska, ändras golden-filen på ett förklarligt sätt?
-6. En människa granskar diffen i `relations.yaml`, särskilt kardinalitet och
-   orphaning-policy.
+6. Användaren granskar resultatet och ger feedback på plattformen om kopplingen
+   blev fel. Det är ingen spärr som stoppar flödet - kardinalitet och
+   orphaning-policy skrivs som obekräftade, och `validate` fångar en koppling som
+   blåser upp radantalet.
 
 Steg 2 gör att en uppladdad fil alltid blir en källa. Det finns ingen väg där en
 fil hamnar i `data/isa/` utan att synas i pipen. Steg 3 och 5 är det som gör
@@ -84,7 +87,7 @@ Maskinen får inte bestämma **kardinalitet**. Att två kolumner överlappar sä
 inget om affärsreglerna: en kund kan ha flera ordrar även om just detta utdrag
 råkar ha en order per kund. Därför skriver registreringen `many_to_one` - den
 säkra läsningen av en referens till en befintlig entitet - och märker raden med
-en kommentar om att den ska bekräftas. Se avsnittet nedan.
+en kommentar om att den är ett obekräftat förslag. Se avsnittet nedan.
 
 Maskinen får inte heller bestämma **orphaning-policy**. Den skriver `keep`, som
 bevarar alla rader, och en människa ändrar till `drop` eller `flag` om det är fel
@@ -122,7 +125,7 @@ Registreringen gör följande:
 - `customer_id` matchar `customer`-entitetens nyckel i alla rader, så den blir en
   koppling dit. Källans egen nyckel hoppas över när kopplingen söks.
 - Nyckelns rot `supplier` blir ett nytt entitetsnamn.
-- Kardinaliteten sätts till `many_to_one` och märks som obekräftad.
+- Kardinaliteten sätts till `many_to_one` och märks som ett obekräftat förslag.
 
 Resultatet i `relations.yaml` - bara tillägg, inga omformateringar:
 
@@ -163,9 +166,10 @@ vilka tabeller som är fakta, vilka som är dimensioner och vilka kolumner som �
 mått. Det härleds ur specen och beskrivs i `docs/amnesomraden.md`.
 
 Skillnaden mot kopplingarna är värd att hålla i minnet. En koppling och en
-orphan-policy styr vad som skrivs ut, och måste därför bekräftas av en människa.
-Ett ämnesområde är en vy som inte skriver något tillbaka, och kan därför härledas
-helt automatiskt.
+orphan-policy styr vad som skrivs ut, och bygger på affärsregler som plattformen
+inte kan känna. De skrivs därför som obekräftade förslag, som användaren
+granskar i efterhand. Ett ämnesområde är en vy som inte skriver något tillbaka,
+och kan därför härledas helt automatiskt.
 
 ## Vad testerna bevakar
 
