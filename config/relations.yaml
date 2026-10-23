@@ -18,7 +18,7 @@ entities:
 # Källor = konkreta flikar i konkreta filer som tillhandahåller en entitet.
 sources:
   - name: customers
-    path: ../data/customers.xlsx
+    path: ../data/isa/customers.xlsx
     sheet: Customers
     entity: customer
     dtypes:
@@ -29,7 +29,7 @@ sources:
       segment: segment
 
   - name: orders
-    path: ../data/orders.xlsx
+    path: ../data/isa/orders.xlsx
     sheet: Orders
     entity: order
     dtypes:

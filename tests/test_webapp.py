@@ -19,6 +19,13 @@ from webapp import (  # noqa: E402
 from fixtures import build_sample_sources, write_workbook
 
 
+def _isa(tmp_path: Path) -> Path:
+    """Datakatalogen som appen läser: data/isa."""
+    directory = tmp_path / "data" / "isa"
+    directory.mkdir(parents=True)
+    return directory
+
+
 def test_page_has_six_tabs_and_valid_markup():
     assert "{{" not in PAGE and "}}" not in PAGE
     for tab in (
@@ -73,42 +80,61 @@ def test_rejects_hidden_and_empty_names():
         safe_name("utan_andelse")
 
 
-def test_collect_sources_lists_workbooks_and_sheets(tmp_path):
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    build_sample_sources(inbox)
-    sources = collect_sources(tmp_path, inbox)
-    names = [s["path"] for s in sources]
-    assert any("customers.xlsx" in n for n in names)
-    customers = next(s for s in sources if "customers" in s["path"])
+def test_collect_sources_lists_name_without_directory_and_extension(tmp_path):
+    """Visningsnamnet är filnamnet utan data/isa/ och utan ändelse."""
+    build_sample_sources(_isa(tmp_path))
+    sources = collect_sources(tmp_path / "data" / "isa")
+    names = sorted(s["name"] for s in sources)
+    assert names == ["customers", "orders"]
+    customers = next(s for s in sources if s["name"] == "customers")
     assert customers["sheets"][0]["name"] == "Customers"
     assert customers["sheets"][0]["rows"] == 4
 
 
+def test_collect_sources_reports_type_instead_of_extension(tmp_path):
+    """Ändelsen ersätts av en Typ-kolumn, så Excel syns som Excel."""
+    build_sample_sources(_isa(tmp_path))
+    sources = collect_sources(tmp_path / "data" / "isa")
+    assert all(s["type"] == "Excel" for s in sources)
+
+
+def test_collect_sources_keeps_full_relative_path_for_traceability(tmp_path):
+    build_sample_sources(_isa(tmp_path))
+    sources = collect_sources(tmp_path / "data" / "isa")
+    customers = next(s for s in sources if s["name"] == "customers")
+    assert customers["file"] == "data/isa/customers.xlsx"
+
+
+def test_collect_sources_reads_only_the_data_directory(tmp_path):
+    """En fil utanför data/isa ska inte dyka upp i listan."""
+    isa = _isa(tmp_path)
+    build_sample_sources(isa)
+    (tmp_path / "data" / "utanfor.xlsx").parent.mkdir(parents=True, exist_ok=True)
+    write_workbook(tmp_path / "data" / "utanfor.xlsx", {"U": pd.DataFrame({"a": [1]})})
+    sources = collect_sources(isa)
+    assert sorted(s["name"] for s in sources) == ["customers", "orders"]
+
+
 def test_collect_sources_ignores_non_spreadsheets(tmp_path):
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    (inbox / "anteckning.txt").write_text("nej", encoding="utf-8")
-    (inbox / "README.md").write_text("nej", encoding="utf-8")
-    assert collect_sources(tmp_path, inbox) == []
+    isa = _isa(tmp_path)
+    (isa / "anteckning.txt").write_text("nej", encoding="utf-8")
+    (isa / "README.md").write_text("nej", encoding="utf-8")
+    assert collect_sources(isa) == []
 
 
 def test_collect_sources_survives_corrupt_file(tmp_path):
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    (inbox / "trasig.xlsx").write_bytes(b"detta ar inte ett kalkylark")
-    build_sample_sources(inbox)
-    sources = collect_sources(tmp_path, inbox)
-    broken = next(s for s in sources if "trasig" in s["path"])
+    isa = _isa(tmp_path)
+    (isa / "trasig.xlsx").write_bytes(b"detta ar inte ett kalkylark")
+    build_sample_sources(isa)
+    sources = collect_sources(isa)
+    broken = next(s for s in sources if s["name"] == "trasig")
     assert broken["sheets"] == []
     assert "error" in broken
 
 
 def test_column_report_lists_columns_and_candidates(tmp_path):
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    build_sample_sources(inbox)
-    report = build_column_report(tmp_path, inbox)
+    build_sample_sources(_isa(tmp_path))
+    report = build_column_report(tmp_path / "data" / "isa")
 
     assert len(report["sources"]) == 2
     customers = next(s for s in report["sources"] if s["sheet"] == "Customers")
@@ -130,22 +156,20 @@ def test_column_report_lists_columns_and_candidates(tmp_path):
 
 def test_column_report_ranks_id_over_date(tmp_path):
     """Datumkolumn med identiska värden får inte vinna över id-kolumnen."""
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
+    isa = _isa(tmp_path)
     dates = ["2024-01-01", "2024-01-02", "2024-01-03"]
-    write_workbook(inbox / "a.xlsx", {"A": pd.DataFrame({"datum": dates, "id": [1, 2, 3]})})
-    write_workbook(inbox / "b.xlsx", {"B": pd.DataFrame({"datum": dates, "id": [1, 2, 3]})})
-    report = build_column_report(tmp_path, inbox)
+    write_workbook(isa / "a.xlsx", {"A": pd.DataFrame({"datum": dates, "id": [1, 2, 3]})})
+    write_workbook(isa / "b.xlsx", {"B": pd.DataFrame({"datum": dates, "id": [1, 2, 3]})})
+    report = build_column_report(isa)
     best = report["pairs"][0]["candidates"][0]
     assert best["left_column"] == "id"
 
 
 def test_column_report_handles_single_source(tmp_path):
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    build_sample_sources(inbox)
-    (inbox / "orders.xlsx").unlink()
-    report = build_column_report(tmp_path, inbox)
+    isa = _isa(tmp_path)
+    build_sample_sources(isa)
+    (isa / "orders.xlsx").unlink()
+    report = build_column_report(isa)
     assert len(report["sources"]) == 1
     assert report["pairs"] == []
 

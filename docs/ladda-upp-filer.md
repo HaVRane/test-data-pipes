@@ -34,19 +34,19 @@ Slutsats: samma felmeddelande uppstår om den valda sökvägen ligger utanför
 Ladda upp till exempelvis:
 
 ```
-/workspace/project/data/inbox/customers.xlsx
-/workspace/project/data/inbox/orders.xlsx
+/workspace/project/data/isa/customers.xlsx
+/workspace/project/data/isa/orders.xlsx
 ```
 
-Skapa `data/inbox/` först om den inte finns. Katalogen är gitignorerad, så
-uppladdade filer hamnar aldrig i versionshantering.
+Skapa `data/isa/` först om den inte finns. Katalogen är gitignorerad, så
+datakällorna hamnar aldrig i versionshantering.
 
 ## Sedan: en fil i taget
 
-När filerna ligger i `data/inbox/` kan du inventera dem utan att skriva något:
+När filerna ligger i `data/isa/` kan du inventera dem utan att skriva något:
 
 ```bash
-python scripts/inspect_uploads.py data/inbox
+python scripts/inspect_uploads.py data/isa
 ```
 
 Verktyget listar varje arbetsbok och flik, profilerar kolumnerna och skriver ut
@@ -56,7 +56,7 @@ läser bara, det ändrar ingenting.
 Vill du jämföra en ny fil mot en befintlig nyckel:
 
 ```bash
-python scripts/inspect_uploads.py data/inbox --reference data/customers.xlsx
+python scripts/inspect_uploads.py data/isa --reference data/isa/customers.xlsx
 ```
 
 Då visas även kandidatkoppling med täckning, föräldralösa nycklar och föreslagen
@@ -65,10 +65,10 @@ kardinalitet — samma bevis som `cli profile`, men för en fil i taget.
 ## Enklaste vägen: uppladdningssidan
 
 GUI:ts uppladdning krånglar. Därför finns en liten tillfällig webbsida där du
-drar in filerna. Den skriver till `data/inbox/` och kräver en nyckel i URL:en.
+drar in filerna. Den skriver till `data/isa/` och kräver en nyckel i URL:en.
 
 ```bash
-python scripts/upload_server.py --directory data/inbox --port 12000
+./scripts/serve_webapp.sh
 ```
 
 Skriptet skriver ut en URL med nyckel, ungefär:
@@ -122,7 +122,7 @@ pkill -f 'webapp.py .*--port 12000'
 Vill du köra för hand i stället:
 
 ```bash
-python -u scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+python -u scripts/webapp.py --data-dir data/isa --port 12000
 ```
 
 `-u` behövs. Utan den buffras utskrifterna, och då syns nyckeln inte förrän
@@ -130,12 +130,13 @@ bufferten töms - det ser ut som att starten hängde sig.
 
 Flikar:
 
-- **Anslut datakälla** — dra in Excel-filer. De hamnar i `data/inbox/`. Varje fil
+- **Anslut datakälla** — dra in Excel-filer. De hamnar i `data/isa/`. Varje fil
   blir automatiskt en datakälla: fliken läggs in i `config/relations.yaml`,
   analysen körs och händelsen loggas. Saknar fliken en egen nyckel får den en
   radnyckel. Det finns ingen väg där en uppladdad fil hamnar utanför pipen.
-- **Indata** — arbetsböcker och flikar som hittats i `data/` och `data/inbox/`,
-  med rad- och kolumnantal.
+- **Indata** — datakällorna i `data/isa/`, en rad per fil, med typ (Excel),
+  flikar, rad- och kolumnantal. Katalogen och filändelsen visas inte; de är
+  alltid desamma.
 - **Kolumner och koppling** — kolumnprofil per datakälla (typ, distinkta värden,
   tomma, möjliga nycklar) samt rangordnade förslag på hur källorna kopplas ihop.
 - **Indatarelationer** — en översikt över datakällorna och nycklarna som binder
@@ -152,7 +153,7 @@ att flikarna visar exakt samma siffror som `cli profile` och testerna.
 
 ## Vad som händer när en fil laddas upp
 
-1. Filen sparas i `data/inbox/`.
+1. Filen sparas i `data/isa/`.
 2. `file_received` loggas.
 3. Flikens kolumner läses. En nyckel föreslås, och om en kolumn pekar på en
    befintlig entitet föreslås en koppling.

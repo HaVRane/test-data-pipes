@@ -51,7 +51,7 @@ ut underlaget och ett utkast till spec-post där kardinalitet och orphaning-poli
 
 ## Arbetsflödet när en ny källa ska in
 
-1. Filen laddas upp till `data/inbox/`.
+1. Filen laddas upp till `data/isa/`.
 2. `register_source` läser flikens kolumner, föreslår en nyckel och en koppling,
    och skriver in posten i `config/relations.yaml`.
 3. Specen laddas om och valideras. En post som inte håller skrivs aldrig.
@@ -63,7 +63,7 @@ ut underlaget och ett utkast till spec-post där kardinalitet och orphaning-poli
    orphaning-policy.
 
 Steg 2 gör att en uppladdad fil alltid blir en källa. Det finns ingen väg där en
-fil hamnar i `data/inbox/` utan att synas i pipen. Steg 3 och 5 är det som gör
+fil hamnar i `data/isa/` utan att synas i pipen. Steg 3 och 5 är det som gör
 automatiken försvarlig: skrivningen valideras mot kontraktet, och testerna
 bevakar att kontraktet fortfarande betyder något.
 
@@ -127,7 +127,7 @@ Resultatet i `relations.yaml` - bara tillägg, inga omformateringar:
 
 ```yaml
   - name: leverantorer
-    path: ../data/inbox/Leverantorer.xlsx
+    path: ../data/isa/Leverantorer.xlsx
     sheet: Suppliers
     entity: supplier
     columns:

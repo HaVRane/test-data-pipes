@@ -24,6 +24,12 @@ nyckeldetektering är ett *förslag* och inte ett beslut. Läs
 `docs/amnesomraden.md` för steget efter kopplingen: hur ämnesområden, fakta,
 dimensioner och mått härleds ur specen.
 
+**Datat ligger i `data/isa/`** - en katalog, inte två. Det är samma katalog som
+specen pekar på och samma som uppladdningen skriver till, så en uppladdad fil
+blir omedelbart en källa. Katalogen är gitignorerad (innehållet, inte mappen).
+Lägg aldrig datakällor någon annanstans: då ser appen dem inte, och specen och
+listningen kan glida isär.
+
 ## Kommandon
 
 ```bash
@@ -33,7 +39,7 @@ python -m excel_merge.cli plan    --spec config/relations.yaml   # visa härledd
 python -m excel_merge.cli run     --spec config/relations.yaml   # kör och skriv utdata
 python -m excel_merge.cli profile --spec config/relations.yaml   # underlag för nya kopplingar
 python -m excel_merge.cli subjects --spec config/relations.yaml  # härledda ämnesområden, fakta och mått
-python scripts/make_sample_data.py                        # skapa exempeldata i data/
+python scripts/make_sample_data.py                        # skapa exempeldata i data/isa/
 UPDATE_GOLDEN=1 python -m pytest tests/test_golden.py     # uppdatera golden-filen
 ```
 
@@ -89,10 +95,11 @@ och vad du gör manuellt om registreringen inte räcker.
 Uppladdning till samtalet kräver att sökvägen ligger innanför arbetskatalogen
 `/workspace/project`. Ligger den utanför svarar servern 422 med "path must be
 inside the conversation workspace". Be användaren ladda upp till
-`data/inbox/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
+`data/isa/` (gitignorerad). Se `docs/ladda-upp-filer.md`.
 
-Webbapplikationen "Automatiserad dataplattform med övervakning" har fem flikar
-(anslut datakälla, indata, kolumner och koppling, indatarelationer, ändringslogg).
+Webbapplikationen "Automatiserad dataplattform med övervakning" har sex flikar
+(anslut datakälla, indata, kolumner och koppling, indatarelationer, ämnesområden,
+ändringslogg).
 Starta den med skriptet:
 
 ```bash
@@ -113,7 +120,7 @@ Skriptet finns för att två saker annars tyst går fel:
 Kör hellre skriptet än kommandot för hand:
 
 ```bash
-python -u scripts/webapp.py --data-dir data --inbox data/inbox --port 12000
+python -u scripts/webapp.py --data-dir data/isa --port 12000
 ```
 
 Nyckeln slumpas. Porten är nåbar utifrån i den här miljön, så en fast nyckel i
@@ -123,8 +130,8 @@ terminalen.
 Inventera uppladdade filer utan att skriva något:
 
 ```bash
-python scripts/inspect_uploads.py data/inbox
-python scripts/inspect_uploads.py data/inbox --reference data/customers.xlsx
+python scripts/inspect_uploads.py data/isa
+python scripts/inspect_uploads.py data/isa --reference data/isa/customers.xlsx
 ```
 
 Verktyget listar flikar, profilerar kolumner och skriver utkast till spec-poster.
@@ -230,7 +237,7 @@ tvingas in i en roll.
 - YAML 1.1 tolkar nyckeln `on:` som boolean `True`. Specen använder `to`/`via`,
   så problemet är borta, men skriv inte `on:` i nya YAML-filer.
 - Uppladdade filer måste hamna under `/workspace/project`, annars 422. Lägg dem
-  i `data/inbox/` och kör `scripts/inspect_uploads.py`.
+  i `data/isa/` och kör `scripts/inspect_uploads.py`.
 - `watch` kräver en giltig spec. Tar man bort en källa som ett bygge fortfarande
   pekar på avvisas specen innan loggning sker. Ta bort källan ur bygget först.
 - Fingeravtrycket normaliserar `1`/`1.0` och `42`/"42" till samma värde. Ändra

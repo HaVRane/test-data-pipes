@@ -40,7 +40,7 @@ if pgrep -f "webapp.py .*--port $PORT" >/dev/null 2>&1; then
 fi
 
 : > "$LOG"
-nohup python -u scripts/webapp.py --data-dir data --inbox data/inbox --port "$PORT" \
+nohup python -u scripts/webapp.py --data-dir data/isa --port "$PORT" \
   >> "$LOG" 2>&1 &
 
 for _ in $(seq 1 30); do
