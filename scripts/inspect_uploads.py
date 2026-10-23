@@ -100,7 +100,7 @@ def report(directory: Path, reference: Path | None = None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Inventera uppladdade Excel-filer och föreslå spec-poster.")
-    parser.add_argument("directory", type=Path, help="Katalog att leta arbetsböcker i, t.ex. data/inbox")
+    parser.add_argument("directory", type=Path, help="Katalog att leta arbetsböcker i, t.ex. data/isa")
     parser.add_argument("--reference", type=Path, help="Befintlig flik att jämföra nycklar mot")
     args = parser.parse_args(argv)
     try:

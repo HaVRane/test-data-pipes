@@ -55,7 +55,7 @@ förändrats?", vilket är precis vad en agent behöver veta innan den rör någ
 
 | Händelse | Betyder |
 |---|---|
-| `file_received` | en fil har laddats upp till `data/inbox/` |
+| `file_received` | en fil har laddats upp till `data/isa/` |
 
 ## Ett flöde, tre slag
 

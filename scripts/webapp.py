@@ -33,6 +33,12 @@ from excel_merge.profile import column_stats, compare_keys
 ALLOWED_SUFFIXES = {".xlsx", ".xls", ".xlsm", ".csv"}
 MAX_BYTES = 25 * 1024 * 1024
 
+# Typ-kolumnen i indata-listan. Ändelsen döljs i visningen, så typen måste
+# anges separat - annars syns det inte om en källa är ett kalkylark eller en
+# CSV-fil.
+TYPE_LABELS = {".csv": "CSV"}
+DEFAULT_TYPE_LABEL = "Excel"
+
 PAGE = """<!doctype html>
 <html lang="sv">
 <meta charset="utf-8">
@@ -99,7 +105,7 @@ PAGE = """<!doctype html>
   <section id="upload">
     <div id="drop">Släpp Excel-filer här, eller klicka för att välja</div>
     <input id="picker" type="file" multiple accept=".xlsx,.xls,.xlsm,.csv" hidden>
-    <p class="muted">Filerna hamnar i <code>data/inbox/</code> och versionshanteras inte.
+    <p class="muted">Filerna hamnar i <code>data/isa/</code> och versionshanteras inte.
       Varje uppladdad fil blir automatiskt en datakälla: fliken läggs in i
       <code>config/relations.yaml</code>, analysen körs och händelsen loggas.
       Saknar fliken en egen nyckel får den en radnyckel, så att ingen fil lämnas utanför.</p>
@@ -107,7 +113,7 @@ PAGE = """<!doctype html>
   </section>
 
   <section id="sources" hidden>
-    <p class="muted">Arbetsböcker och flikar som hittats i <code>data/</code> och <code>data/inbox/</code>.</p>
+    <p class="muted">Datakällorna i <code>data/isa/</code>, en rad per fil.</p>
     <div id="sourcesBody"></div>
   </section>
 
@@ -268,15 +274,23 @@ async function loadSources() {
   box.innerHTML = "<p class='muted'>Läser…</p>";
   try {
     const books = await get("sources");
-    if (!books.length) { box.innerHTML = "<p class='muted'>Inga arbetsböcker hittades.</p>"; return; }
-    box.innerHTML = books.map(b => `
-      <div class="card">
-        <strong>${esc(b.path)}</strong>
-        <table>
-          <thead><tr><th>Flik</th><th class="num">Rader</th><th class="num">Kolumner</th></tr></thead>
-          <tbody>${b.sheets.map(s => `<tr><td>${esc(s.name)}</td><td class="num">${s.rows}</td><td class="num">${s.columns}</td></tr>`).join("")}</tbody>
-        </table>
-      </div>`).join("");
+    if (!books.length) { box.innerHTML = "<p class='muted'>Inga datakällor hittades.</p>"; return; }
+    const rows = books.flatMap(b => {
+      if (!b.sheets.length) {
+        const note = b.error ? "kunde inte läsas" : "inga flikar";
+        return [`<tr><td>${esc(b.name)}</td><td>${esc(b.type)}</td>
+          <td class="err">${esc(note)}</td><td class="num">–</td><td class="num">–</td></tr>`];
+      }
+      return b.sheets.map((s, i) => `<tr>
+        <td>${i === 0 ? esc(b.name) : ""}</td>
+        <td>${i === 0 ? esc(b.type) : ""}</td>
+        <td>${esc(s.name)}</td><td class="num">${s.rows}</td><td class="num">${s.columns}</td>
+      </tr>`);
+    }).join("");
+    box.innerHTML = `<table>
+      <thead><tr><th>Fil</th><th>Typ</th><th>Flik</th><th class="num">Rader</th><th class="num">Kolumner</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
   } catch (e) { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; }
 }
 
@@ -708,64 +722,80 @@ def read_workbook_sheets(path: Path) -> list[dict]:
             return sheets
 
 
-def collect_sources(data_dir: Path, inbox: Path) -> list[dict]:
-    """Lista alla arbetsböcker i data/ och data/inbox/."""
+def source_type(path: Path) -> str:
+    """Typen som visas i indata-listan, t.ex. "Excel" eller "CSV"."""
+    return TYPE_LABELS.get(path.suffix.lower(), DEFAULT_TYPE_LABEL)
+
+
+def _display_path(path: Path, data_dir: Path) -> str:
+    """Sökvägen relativt projektroten, för spårbarhet.
+
+    Datakatalogen ligger under ``data/``, så rotens rot är två nivåer upp. Blir
+    sökvägen inte relativ (t.ex. vid en katalog utanför projektet) visas den som
+    den är i stället för att kastas.
+    """
+    try:
+        return path.relative_to(data_dir.parent.parent).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def collect_sources(data_dir: Path) -> list[dict]:
+    """Lista alla arbetsböcker i datakatalogen.
+
+    ``name`` är filnamnet utan katalog och ändelse: katalogen är alltid samma
+    och ändelsen ersätts av kolumnen Typ. ``file`` behåller hela den relativa
+    sökvägen, så att en fil går att spåra även när visningsnamnet är kort.
+    """
     found: list[dict] = []
-    seen: set[Path] = set()
-    for directory in (data_dir, inbox):
-        if not directory.is_dir():
+    if not data_dir.is_dir():
+        return found
+    for path in sorted(data_dir.glob("*")):
+        if not path.is_file() or path.suffix.lower() not in ALLOWED_SUFFIXES:
             continue
-        for path in sorted(directory.glob("*")):
-            if not path.is_file() or path.suffix.lower() not in ALLOWED_SUFFIXES:
-                continue
-            resolved = path.resolve()
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            try:
-                sheets = read_workbook_sheets(path)
-            except Exception as exc:  # trasig fil ska inte fälla hela sidan
-                sheets = []
-                found.append({"path": str(path.relative_to(data_dir.parent)), "error": str(exc), "sheets": []})
-                continue
-            found.append({"path": str(path.relative_to(data_dir.parent)), "sheets": sheets})
+        entry = {
+            "name": path.stem,
+            "file": _display_path(path, data_dir),
+            "type": source_type(path),
+        }
+        try:
+            entry["sheets"] = read_workbook_sheets(path)
+        except Exception as exc:  # trasig fil ska inte fälla hela sidan
+            entry["sheets"] = []
+            entry["error"] = str(exc)
+        found.append(entry)
     return found
 
 
-def _load_frames(data_dir: Path, inbox: Path) -> list[tuple[str, str, str, pd.DataFrame]]:
-    """Läs första fliken i varje arbetsbok som en (fil, flik, namn, ram)."""
+def _load_frames(data_dir: Path) -> list[tuple[str, str, str, pd.DataFrame]]:
+    """Läs varje flik i varje arbetsbok som en (fil, flik, namn, ram)."""
     frames = []
-    seen: set[Path] = set()
-    for directory in (data_dir, inbox):
-        if not directory.is_dir():
+    if not data_dir.is_dir():
+        return frames
+    for path in sorted(data_dir.glob("*")):
+        if not path.is_file() or path.suffix.lower() not in ALLOWED_SUFFIXES:
             continue
-        for path in sorted(directory.glob("*")):
-            if not path.is_file() or path.suffix.lower() not in ALLOWED_SUFFIXES:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                book = pd.ExcelFile(path, engine="openpyxl")
+            except Exception:  # trasig fil ska hoppas över, inte fälla sidan
                 continue
-            if path.resolve() in seen:
-                continue
-            seen.add(path.resolve())
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                try:
-                    book = pd.ExcelFile(path, engine="openpyxl")
-                except Exception:  # trasig fil ska hoppas över, inte fälla sidan
-                    continue
-                with book:
-                    for sheet in book.sheet_names:
-                        try:
-                            frame = book.parse(sheet)
-                        except Exception:
-                            continue
-                        frames.append(
-                            (str(path.relative_to(data_dir.parent)), sheet, f"{path.stem}/{sheet}", frame)
-                        )
+            with book:
+                for sheet in book.sheet_names:
+                    try:
+                        frame = book.parse(sheet)
+                    except Exception:
+                        continue
+                    frames.append(
+                        (_display_path(path, data_dir), sheet, f"{path.stem}/{sheet}", frame)
+                    )
     return frames
 
 
-def build_column_report(data_dir: Path, inbox: Path, max_candidates: int = 3) -> dict:
+def build_column_report(data_dir: Path, max_candidates: int = 3) -> dict:
     """Kolumner per källa samt rangordnade kopplingskandidater mellan dem."""
-    frames = _load_frames(data_dir, inbox)
+    frames = _load_frames(data_dir)
 
     sources = []
     for file_name, sheet, name, frame in frames:
@@ -814,7 +844,7 @@ def build_column_report(data_dir: Path, inbox: Path, max_candidates: int = 3) ->
     return {"sources": sources, "pairs": pairs}
 
 
-def build_relationship_map(data_dir: Path, inbox: Path, max_edges_per_pair: int = 2) -> dict:
+def build_relationship_map(data_dir: Path, max_edges_per_pair: int = 2) -> dict:
     """En översikt över källorna och nycklarna som binder dem samman.
 
     Till skillnad från kolumnrapporten visar den här bara det som behövs för att
@@ -824,7 +854,7 @@ def build_relationship_map(data_dir: Path, inbox: Path, max_edges_per_pair: int 
     Endast kandidater som är rekommenderade eller möjliga blir kanter. Annars
     fylls relationerna av svaga förslag och blir svårare att läsa än tabellerna.
     """
-    frames = _load_frames(data_dir, inbox)
+    frames = _load_frames(data_dir)
 
     nodes = []
     for file_name, sheet, name, frame in frames:
@@ -961,7 +991,6 @@ def _slug(text: str) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    inbox: Path
     data_dir: Path
     key: str
     spec_path: Path
@@ -1001,22 +1030,22 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/list":
             files = [
                 {"name": p.name, "size": p.stat().st_size}
-                for p in sorted(self.inbox.iterdir())
+                for p in sorted(self.data_dir.iterdir())
                 if p.is_file() and p.suffix.lower() in ALLOWED_SUFFIXES
             ]
             self._json(200, files)
             return
 
         if parsed.path == "/sources":
-            self._json(200, collect_sources(self.data_dir, self.inbox))
+            self._json(200, collect_sources(self.data_dir))
             return
 
         if parsed.path == "/columns":
-            self._json(200, build_column_report(self.data_dir, self.inbox))
+            self._json(200, build_column_report(self.data_dir))
             return
 
         if parsed.path == "/map":
-            self._json(200, build_relationship_map(self.data_dir, self.inbox))
+            self._json(200, build_relationship_map(self.data_dir))
             return
 
         if parsed.path == "/subjects":
@@ -1078,7 +1107,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         data = self.rfile.read(length)
-        target = self.inbox / name
+        target = self.data_dir / name
         target.write_bytes(data)
 
         # Registreringen gör filen till en källa i pipen och loggar händelsen.
@@ -1173,19 +1202,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(
     data_dir: Path,
-    inbox: Path,
     port: int,
     key: str,
     spec_path: Path,
     log_path: Path,
     state_path: Path,
 ) -> None:
-    inbox.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
     handler = type(
         "BoundHandler",
         (Handler,),
         {
-            "inbox": inbox,
             "data_dir": data_dir,
             "key": key,
             "spec_path": spec_path,
@@ -1196,7 +1223,6 @@ def serve(
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     print(f"Automatiserad dataplattform med övervakning på port {port}")
     print(f"  data:  {data_dir}")
-    print(f"  inbox: {inbox}")
     print(f"  spec:  {spec_path}")
     print(f"  logg:  {log_path}")
     print(f"  nyckel: {key}")
@@ -1207,8 +1233,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Webbapplikation: anslut datakälla, visa indata, kolumner, relationer, ämnesområden och ändringslogg."
     )
-    parser.add_argument("--data-dir", type=Path, default=Path("data"))
-    parser.add_argument("--inbox", type=Path, default=None, help="mottagningskatalog (default: <data>/inbox)")
+    parser.add_argument("--data-dir", type=Path, default=Path("data/isa"),
+                        help="katalog med datakällorna")
     parser.add_argument("--port", type=int, default=12000)
     parser.add_argument("--key", default=None, help="nyckel som krävs i URL:en (slumpas annars)")
     parser.add_argument("--spec", type=Path, default=Path("config/relations.yaml"),
@@ -1218,7 +1244,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     serve(
         args.data_dir,
-        args.inbox or args.data_dir / "inbox",
         args.port,
         args.key or secrets.token_urlsafe(16),
         args.spec,

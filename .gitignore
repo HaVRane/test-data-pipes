@@ -8,12 +8,9 @@ out/
 # Ändringsloggens tillstånd byggs lokalt.
 state/
 
-# Uppladdade datafiler versionshanteras inte, men mottagningskatalogen finns kvar.
-data/*.xlsx
-data/*.xls
-data/*.xlsm
-data/inbox/*
-!data/inbox/.gitkeep
-!data/inbox/README.md
+# Datakällorna versionshanteras inte, men katalogen finns kvar.
+data/isa/*
+!data/isa/.gitkeep
+!data/isa/README.md
 
 .agent_tmp/

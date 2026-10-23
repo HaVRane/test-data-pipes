@@ -1,4 +1,4 @@
-"""End-to-end-tester för ändringsloggens endpoints, mot en riktig server."""
+"""End-to-end-tester för ändringsloggen och uppladdningen, mot en riktig server."""
 
 from __future__ import annotations
 
@@ -64,9 +64,8 @@ KEY = "testnyckel"
 
 @pytest.fixture
 def server(tmp_path):
-    data = tmp_path / "data"
-    inbox = data / "inbox"
-    inbox.mkdir(parents=True)
+    data = tmp_path / "data" / "isa"
+    data.mkdir(parents=True)
     customers = data / "customers.xlsx"
     orders = data / "orders.xlsx"
     pd.DataFrame({"customer_id": [1, 2], "name": ["A", "B"]}).to_excel(
@@ -88,7 +87,6 @@ def server(tmp_path):
     )
 
     handler = type("H", (Handler,), {
-        "inbox": inbox,
         "data_dir": data,
         "key": KEY,
         "spec_path": spec,
@@ -120,6 +118,63 @@ def post(server, path):
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read())
+
+
+def upload(server, name: str, data: bytes):
+    """Ladda upp en fil via /upload, som webbsidan gör."""
+    request = urllib.request.Request(
+        f"{server['base']}/upload?key={KEY}",
+        method="POST",
+        data=data,
+        headers={"X-Filename": name},
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def _workbook_bytes() -> bytes:
+    from io import BytesIO
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        pd.DataFrame({"kund_id": [1, 2], "namn": ["A", "B"]}).to_excel(
+            writer, sheet_name="Kunder", index=False
+        )
+    return buffer.getvalue()
+
+
+def test_upload_lands_in_the_data_directory_the_spec_reads(server):
+    """Filen ska hamna i samma katalog som appen läser, inte i en sidokatalog."""
+    status, payload = upload(server, "nya_kunder.xlsx", _workbook_bytes())
+    assert status == 200, payload
+    assert payload["success"] is True
+    assert (server["data"] / "nya_kunder.xlsx").is_file()
+
+
+def test_uploaded_file_shows_up_as_a_source_without_directory_or_extension(server):
+    upload(server, "nya_kunder.xlsx", _workbook_bytes())
+    books = get(server, "/sources")
+    entry = next(b for b in books if b["name"] == "nya_kunder")
+    assert entry["type"] == "Excel"
+    assert entry["sheets"][0]["name"] == "Kunder"
+
+
+def test_uploaded_file_becomes_a_source_in_the_spec(server):
+    """Uppladdningen registrerar fliken, så filen syns i pipen direkt."""
+    status, payload = upload(server, "nya_kunder.xlsx", _workbook_bytes())
+    assert status == 200
+    assert payload.get("registration_error") is None, payload
+    assert payload["source"]["sheet"] == "Kunder"
+    assert "nya_kunder" in server["spec"].read_text(encoding="utf-8")
+
+
+def test_upload_rejects_disallowed_file_type(server):
+    status, payload = upload(server, "elak.sh", b"#!/bin/sh\n")
+    assert status == 400
+    assert "filtypen" in payload["detail"]
 
 
 def test_changelog_endpoint_is_empty_before_first_watch(server):
