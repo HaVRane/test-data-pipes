@@ -59,6 +59,13 @@ och vad du gör manuellt om registreringen inte räcker.
 
 ## Regler som inte får tummas på
 
+- **Gränsen för human in the loop går vid skrivning, inte vid läsning.**
+  Allt som kan ändra data - kopplingar, kardinalitet, orphaning-policy, poster i
+  specen - ska föreslås och bekräftas. Allt som bara läser och härleder (profiler,
+  körplan, ämnesområden, ämnesområdenas flik) får köras helt automatiskt. En
+  felaktig härledning förstör ingenting och syns i nästa körning; en felaktig
+  skrivning ändrar utdata. Flytta därför inte ett härlett steg över gränsen, och
+  låt inte ett skrivande steg passera utan bekräftelse.
 - **Kardinalitet och orphaning-policy är affärsbeslut.** Föreslå dem, men
   beskriv dem som obekräftade. `validate`/`cardinality` är skyddsnätet som gör
   att en felaktig koppling går rött i stället för att tyst blåsa upp radantalet.
