@@ -20,7 +20,9 @@ Arkitekturen har tre lager:
    Den vet ingenting om kunder eller ordrar, bara om nycklar och policies.
 
 Läs `docs/relations.md` för resonemanget bakom modellen, särskilt varför
-nyckeldetektering är ett *förslag* och inte ett beslut.
+nyckeldetektering är ett *förslag* och inte ett beslut. Läs
+`docs/amnesomraden.md` för steget efter kopplingen: hur ämnesområden, fakta,
+dimensioner och mått härleds ur specen.
 
 ## Kommandon
 
@@ -30,6 +32,7 @@ python -m pytest                                          # kör hela sviten (kr
 python -m excel_merge.cli plan    --spec config/relations.yaml   # visa härledd körplan
 python -m excel_merge.cli run     --spec config/relations.yaml   # kör och skriv utdata
 python -m excel_merge.cli profile --spec config/relations.yaml   # underlag för nya kopplingar
+python -m excel_merge.cli subjects --spec config/relations.yaml  # härledda ämnesområden, fakta och mått
 python scripts/make_sample_data.py                        # skapa exempeldata i data/
 UPDATE_GOLDEN=1 python -m pytest tests/test_golden.py     # uppdatera golden-filen
 ```
@@ -186,6 +189,27 @@ antydar ett mått eller datum (`belopp`, `order_date`, `amount`) visas inte som
 nyckel: i ett litet datamaterial blir ett belopp unikt av en slump utan att vara
 en identifierare. En kolumn som faktiskt används i en koppling listas som nyckel
 även om den inte är unik ensam.
+
+## Ämnesområden
+
+Fliken `Ämnesområden` visar fakta, dimensioner och mått härledda ur specen. En
+entitet med mått blir fakta, en som bara beskriver blir dimension, och en
+dimension som delas av flera områden är konform. Se `docs/amnesomraden.md`.
+
+```bash
+python -m excel_merge.cli subjects --spec config/relations.yaml
+curl "http://127.0.0.1:12000/subjects?key=..."   # {"subjects": [...], "conformed": [...], "unassigned": [...]}
+```
+
+Härledningen är regelbaserad och deterministisk, utan språkmodell. Den läser
+specen och skriver ingenting tillbaka. **Det är därför steget får köras utan
+human in the loop, medan kopplingar och orphan-policy inte får det:** gränsen går
+vid skrivning, inte vid läsning. En felaktig klassning förstör ingen data.
+
+Två regler är värda att känna till. En nyckel och en främmande nyckel blir
+aldrig mått, även när de är tal. Och oklassad är ett giltigt svar: en entitet
+utan mått som inget bygge nämner rapporteras i `unassigned` i stället för att
+tvingas in i en roll.
 
 ## Kända fallgropar
 

@@ -143,6 +143,69 @@ def test_cli_profile_prints_key_evidence(spec_file, capsys):
     assert "to: order" in out
 
 
+def test_cli_subjects_prints_facts_dimensions_and_measures(spec_file, capsys):
+    """Kommandot ska visa härledningen, med skäl, utan att röra specen."""
+    path = spec_file()
+    before = path.read_text(encoding="utf-8")
+
+    assert main(["subjects", "--spec", str(path)]) == 0
+    out = capsys.readouterr().out
+
+    assert "ämnesområde: customer_orders" in out
+    assert "fakta: order" in out
+    assert "dimension: customer" in out
+    assert "mått: order_amount [numeric]" in out
+    assert "mått: order_date [datetime]" in out
+    # Nycklar och främmande nycklar får inte dyka upp som mått.
+    assert "mått: order_id" not in out
+    assert "mått: customer_id" not in out
+    assert "främmande nyckel: customer_id -> customer" in out
+    # Härledningen är en vy. Specen ska vara orörd.
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_cli_subjects_reports_unassigned_entities(tmp_path, capsys):
+    """En entitet med källa men utanför alla byggen ska rapporteras."""
+    pd.DataFrame({"customer_id": [1], "name": ["A"]}).to_excel(
+        tmp_path / "c.xlsx", index=False, sheet_name="S"
+    )
+    pd.DataFrame({"lonely_id": [1], "value": [5.0]}).to_excel(
+        tmp_path / "l.xlsx", index=False, sheet_name="S"
+    )
+    spec = tmp_path / "relations.yaml"
+    spec.write_text(
+        """\
+version: 1
+entities:
+  customer: {key: customer_id}
+  lonely: {key: lonely_id}
+sources:
+  - name: customers
+    path: c.xlsx
+    sheet: S
+    entity: customer
+    columns: {customer_id: customer_id, name: customer_name}
+  - name: lonely
+    path: l.xlsx
+    sheet: S
+    entity: lonely
+    dtypes: {value: float}
+    columns: {lonely_id: lonely_id, value: lonely_value}
+builds:
+  - name: customer_subject
+    base: customer
+    include: [customer]
+    output: out.xlsx
+    sheet: S
+""",
+        encoding="utf-8",
+    )
+    assert main(["subjects", "--spec", str(spec)]) == 0
+    out = capsys.readouterr().out
+    assert "utanför varje ämnesområde" in out
+    assert "lonely" in out
+
+
 def test_cli_requires_spec_argument():
     with pytest.raises(SystemExit):
         main(["profile"])

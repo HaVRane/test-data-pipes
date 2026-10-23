@@ -1,4 +1,4 @@
-"""Webbapplikation: anslut datakälla, indata, kolumner, relationer och ändringslogg.
+"""Webbapplikation: anslut datakälla, indata, kolumner, relationer, ämnesområden och ändringslogg.
 
 Ersätter den tidigare enkla uppladdningssidan. Sidan är ett tunt skal över
 samma logik som CLI:t använder - ingen databehandling sker i JavaScript.
@@ -91,6 +91,7 @@ PAGE = """<!doctype html>
     <button data-tab="sources">Indata</button>
     <button data-tab="columns">Kolumner och koppling</button>
     <button data-tab="map">Indatarelationer</button>
+    <button data-tab="subjects">Ämnesområden</button>
     <button data-tab="changelog">Ändringslogg</button>
   </nav>
 </header>
@@ -118,6 +119,14 @@ PAGE = """<!doctype html>
   <section id="map" hidden>
     <p class="muted">En översikt över datakällorna och nycklarna som binder dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna relationer.</p>
     <div id="mapBody"></div>
+  </section>
+
+  <section id="subjects" hidden>
+    <p class="muted">Ämnesområden härledda ur <code>config/relations.yaml</code>. En entitet med mått
+      blir <strong>fakta</strong>, en som bara beskriver blir <strong>dimension</strong>. Klassningen
+      är regelbaserad och skriver ingenting tillbaka, så den kan köras utan granskning.
+      Varje rad bär sitt skäl.</p>
+    <div id="subjectsBody"></div>
   </section>
 
   <section id="changelog" hidden>
@@ -158,9 +167,10 @@ PAGE = """<!doctype html>
       </div>
       <p class="muted" style="margin-bottom:0">
         <code>watch</code> jämför källorna mot senast kända innehållsfingeravtryck och loggar
-        skillnaderna. Loggen har två slag: <strong>data</strong> beskriver ändringar i
+        skillnaderna. Loggen har tre slag: <strong>data</strong> beskriver ändringar i
         innehållet, <strong>struktur</strong> beskriver hur pipen byggts om (källor, nycklar,
-        byggen). Tillsammans blir de en tidslinje över hela dataflödet.
+        byggen) och <strong>mottagning</strong> att en fil kommit in. Tillsammans blir de en
+        tidslinje över hela dataflödet.
       </p>
     </div>
     <div id="changelogBody"></div>
@@ -178,6 +188,7 @@ document.querySelectorAll("#tabs button").forEach(btn => {
     if (btn.dataset.tab === "sources") loadSources();
     if (btn.dataset.tab === "columns") loadColumns();
     if (btn.dataset.tab === "map") loadMap();
+    if (btn.dataset.tab === "subjects") loadSubjects();
     if (btn.dataset.tab === "changelog") loadChangelog();
   };
 });
@@ -239,6 +250,7 @@ async function handle(files) {
     if (!document.getElementById("sources").hidden) loadSources();
     if (!document.getElementById("columns").hidden) loadColumns();
     if (!document.getElementById("map").hidden) loadMap();
+    if (!document.getElementById("subjects").hidden) loadSubjects();
     if (!document.getElementById("changelog").hidden) loadChangelog();
   }
 }
@@ -418,6 +430,106 @@ function loadMap() {
       </table>` : "<p class='muted'>Inga kopplingar hittades mellan tabellerna.</p>"}
     `;
   }).catch(e => { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; });
+}
+
+/* --- ämnesområden --- */
+function measureList(fact) {
+  if (!fact.measures.length) return "<p class='muted'>Inga mått.</p>";
+  return `<table>
+    <thead><tr><th>Mått</th><th>Källa</th><th>Slag</th><th>Skäl</th></tr></thead>
+    <tbody>${fact.measures.map(m => `<tr>
+      <td><strong>${esc(m.column)}</strong></td>
+      <td class="muted">${esc(m.source)}</td>
+      <td><span class="pill key">${esc(m.kind)}</span></td>
+      <td class="muted">${esc(m.reason)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+function factBlock(fact) {
+  const fk = fact.foreign_keys.length
+    ? `<p class="muted" style="margin:.5rem 0 0">främmande nycklar:
+        ${fact.foreign_keys.map(k => `<code>${esc(k.column)} → ${esc(k.to_entity)}</code>
+          <span class="muted">(${esc(k.cardinality)})</span>`).join(", ")}</p>`
+    : "";
+  return `<div class="card">
+    <div><span class="pill rec">fakta</span> <strong>${esc(fact.entity)}</strong>
+      <span class="muted">nyckel ${esc(fact.key)} · källor ${fact.sources.map(esc).join(", ")}</span></div>
+    <p class="muted" style="margin:.35rem 0">radnivå: ${esc(fact.grain)}</p>
+    <p class="muted" style="margin:.35rem 0">${esc(fact.reason)}</p>
+    ${measureList(fact)}${fk}
+  </div>`;
+}
+
+function dimensionBlock(dimension) {
+  const attrs = dimension.attributes.length
+    ? dimension.attributes.map(a => `<span class="pill no">${esc(a)}</span>`).join(" ")
+    : "<span class='muted'>inga attribut</span>";
+  return `<div class="card">
+    <div><span class="pill maybe">dimension</span> <strong>${esc(dimension.entity)}</strong>
+      <span class="muted">nyckel ${esc(dimension.key)} · källor ${dimension.sources.map(esc).join(", ")}</span></div>
+    <div style="margin:.5rem 0">${attrs}</div>
+    <p class="muted" style="margin:0">${esc(dimension.reason)}</p>
+  </div>`;
+}
+
+function subjectBlock(subject) {
+  const facts = subject.facts.length
+    ? subject.facts.map(factBlock).join("")
+    : "<p class='muted'>Ingen fakta i området - inga mått hittades.</p>";
+  const dims = subject.dimensions.length
+    ? subject.dimensions.map(dimensionBlock).join("")
+    : "<p class='muted'>Inga dimensioner i området.</p>";
+  return `<h2 style="font-size:1.05rem; margin-top:1.5rem">${esc(subject.name)}</h2>
+    <p class="muted">${esc(subject.reason)}</p>
+    ${facts}
+    ${dims}`;
+}
+
+async function loadSubjects() {
+  const box = document.getElementById("subjectsBody");
+  box.innerHTML = "<p class='muted'>Härleder…</p>";
+  try {
+    const data = await get("subjects");
+    if (data.error) { box.innerHTML = `<p class="err">Fel: ${esc(data.error)}</p>`; return; }
+    if (!data.subjects.length) {
+      box.innerHTML = "<p class='muted'>Inga ämnesområden kunde härledas ur specen.</p>";
+      return;
+    }
+
+    let out = "";
+    if (data.missing_sources && data.missing_sources.length) {
+      out += `<p class="err">Saknade källor togs bort ur modellen: ${data.missing_sources.map(esc).join(", ")}</p>`;
+    }
+    out += data.subjects.map(subjectBlock).join("");
+
+    if (data.conformed.length) {
+      out += `<h2 style="font-size:1.05rem; margin-top:1.5rem">Konforma dimensioner</h2>
+        <p class="muted">Dimensioner som delas av flera ämnesområden, och därför betyder samma sak i alla.</p>
+        <table>
+          <thead><tr><th>Dimension</th><th>Nyckel</th><th>Ämnesområden</th></tr></thead>
+          <tbody>${data.conformed.map(c => `<tr>
+            <td><strong>${esc(c.entity)}</strong></td>
+            <td><code>${esc(c.key)}</code></td>
+            <td>${c.subjects.map(s => `<span class="pill rec">${esc(s)}</span>`).join(" ")}</td>
+          </tr>`).join("")}</tbody>
+        </table>`;
+    }
+
+    if (data.unassigned.length) {
+      out += `<h2 style="font-size:1.05rem; margin-top:1.5rem">Entiteter utanför varje ämnesområde</h2>
+        <p class="muted">De här har källor men nämns inte i något bygge. De får inte försvinna tyst.</p>
+        <table>
+          <thead><tr><th>Entitet</th><th>Källor</th><th>Skäl</th></tr></thead>
+          <tbody>${data.unassigned.map(u => `<tr>
+            <td><strong>${esc(u.entity)}</strong></td>
+            <td class="muted">${u.sources.map(esc).join(", ")}</td>
+            <td class="muted">${esc(u.reason)}</td>
+          </tr>`).join("")}</tbody>
+        </table>`;
+    }
+
+    box.innerHTML = out;
+  } catch (e) { box.innerHTML = `<p class="err">Fel: ${esc(e.message)}</p>`; }
 }
 
 /* --- ändringslogg --- */
@@ -776,6 +888,58 @@ def build_relationship_map(data_dir: Path, inbox: Path, max_edges_per_pair: int 
     return {"nodes": nodes, "edges": edges}
 
 
+def build_subject_report(spec_path: Path) -> dict:
+    """Härledda ämnesområden ur relationsspecen.
+
+    Till skillnad från kolumn- och relationsvyerna läser den här vyn specen i
+    stället för att skanna katalogerna. Det är avsiktligt: ämnesområden handlar
+    om vad datan *betyder*, och det står i specen.
+
+    En trasig spec ska inte ge en tom sida utan ett begripligt fel, så felet
+    följer med i svaret i stället för att kastas.
+    """
+    from excel_merge.relations import RelationSpecError, load_relation_spec, resolve_present_spec
+    from excel_merge.subjects import derive_subjects, load_frames, subject_model_to_dict
+
+    if not Path(spec_path).is_file():
+        return {
+            "subjects": [],
+            "conformed": [],
+            "unassigned": [],
+            "error": f"relationsspecen hittades inte: {spec_path}",
+            "spec": str(spec_path),
+        }
+    try:
+        full = load_relation_spec(spec_path)
+        missing = full.missing_source_names()
+        spec = resolve_present_spec(full)
+        model = derive_subjects(spec, frames=load_frames(spec))
+    except RelationSpecError as exc:
+        # En saknad källa behandlas som om posten strukits ur specen, och då kan
+        # ett bygge bli ogiltigt. Säg vilka filer som saknas, annars är felet
+        # svårt att åtgärda: "ingen källa tillhandahåller order" pekar inte ut
+        # vilken fil som försvunnit.
+        message = str(exc)
+        try:
+            gone = load_relation_spec(spec_path).missing_source_names()
+        except RelationSpecError:
+            gone = []
+        if gone:
+            message = f"{message}. Källor vars fil eller flik saknas: {', '.join(gone)}"
+        return {
+            "subjects": [],
+            "conformed": [],
+            "unassigned": [],
+            "error": message,
+            "missing_sources": gone,
+            "spec": str(spec_path),
+        }
+    payload = subject_model_to_dict(model)
+    payload["spec"] = str(spec_path)
+    payload["missing_sources"] = missing
+    return payload
+
+
 def _entity_name(source_name: str) -> str:
     """Gör "Vattenkraft/Vattenkraftverk" till ett användbart entitetsnamn."""
     tail = source_name.split("/")[-1]
@@ -853,6 +1017,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/map":
             self._json(200, build_relationship_map(self.data_dir, self.inbox))
+            return
+
+        if parsed.path == "/subjects":
+            self._json(200, build_subject_report(self.spec_path))
             return
 
         if parsed.path == "/changelog":
@@ -1037,7 +1205,7 @@ def serve(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Webbapplikation: anslut datakälla, visa indata, kolumner, relationer och ändringslogg."
+        description="Webbapplikation: anslut datakälla, visa indata, kolumner, relationer, ämnesområden och ändringslogg."
     )
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--inbox", type=Path, default=None, help="mottagningskatalog (default: <data>/inbox)")

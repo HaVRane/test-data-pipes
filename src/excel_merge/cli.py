@@ -1,10 +1,11 @@
 """Kommandoradsgränssnitt.
 
-    python -m excel_merge.cli run     --spec config/relations.yaml [--build namn]
-    python -m excel_merge.cli profile --spec config/relations.yaml
-    python -m excel_merge.cli plan    --spec config/relations.yaml
-    python -m excel_merge.cli watch   --spec config/relations.yaml
-    python -m excel_merge.cli log     --spec config/relations.yaml
+    python -m excel_merge.cli run      --spec config/relations.yaml [--build namn]
+    python -m excel_merge.cli profile  --spec config/relations.yaml
+    python -m excel_merge.cli plan     --spec config/relations.yaml
+    python -m excel_merge.cli subjects --spec config/relations.yaml
+    python -m excel_merge.cli watch    --spec config/relations.yaml
+    python -m excel_merge.cli log      --spec config/relations.yaml
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from excel_merge.engine import BuildError, execute_build
 from excel_merge.io import SourceReadError, read_sheet
 from excel_merge.profile import discover_candidate_keys, format_comparison, suggest_spec_entry
 from excel_merge.relations import RelationSpecError, build_plan, load_relation_spec, resolve_present_spec
+from excel_merge.subjects import derive_subjects, load_frames
 from excel_merge.watch import run_watch
 
 DEFAULT_LOG = "state/changelog.ndjson"
@@ -164,6 +166,49 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_subjects(args: argparse.Namespace) -> int:
+    """Visa härledda ämnesområden: fakta, dimensioner och mått.
+
+    Detta är en vy över specen, inte en ändring av den. Ingenting skrivs
+    tillbaka, och klassningen är regelbaserad - därför kan den köras utan att
+    någon granskar den först.
+    """
+    spec = _drop_missing_sources(load_relation_spec(args.spec))
+    model = derive_subjects(spec, frames=load_frames(spec))
+
+    if not model.subjects:
+        print("Inga ämnesområden kunde härledas - specen saknar källor.")
+        return 0
+
+    for subject in model.subjects:
+        print(f"ämnesområde: {subject.name}")
+        print(f"  {subject.reason}")
+        for fact in subject.facts:
+            print(f"  fakta: {fact.entity} (nyckel {fact.key}, källor: {', '.join(fact.sources)})")
+            print(f"    radnivå: {fact.grain}")
+            for measure in fact.measures:
+                print(f"    mått: {measure.column} [{measure.kind}]")
+            for key in fact.foreign_keys:
+                print(f"    främmande nyckel: {key.column} -> {key.to_entity} ({key.cardinality})")
+        for dimension in subject.dimensions:
+            attributes = ", ".join(dimension.attributes) or "inga"
+            print(f"  dimension: {dimension.entity} (nyckel {dimension.key})")
+            print(f"    attribut: {attributes}")
+        print()
+
+    if model.conformed:
+        print("konforma dimensioner (delas av flera ämnesområden):")
+        for conformed in model.conformed:
+            print(f"  {conformed.entity}: {', '.join(conformed.subjects)}")
+        print()
+
+    if model.unassigned:
+        print("entiteter utanför varje ämnesområde:")
+        for unassigned in model.unassigned:
+            print(f"  {unassigned.entity}: {unassigned.reason}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Koppla ihop Excel-flikar till ett nytt ark.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -175,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, handler, help_text in (
         ("profile", _cmd_profile, "profilera källorna och föreslå kopplingar"),
         ("plan", _cmd_plan, "visa härledd körplan"),
+        ("subjects", _cmd_subjects, "visa härledda ämnesområden, fakta och mått"),
     ):
         child = sub.add_parser(name, help=help_text)
         child.add_argument("--spec", required=True, type=Path, help="Sökväg till relationsspecen (YAML)")

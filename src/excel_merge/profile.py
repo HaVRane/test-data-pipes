@@ -22,7 +22,12 @@ _DATETIME = "datetime"
 _TEXT = "text"
 
 
-def _kind(series: pd.Series) -> str:
+def column_kind(series: pd.Series) -> str:
+    """Klassar en kolumn som numeric, datetime eller text.
+
+    Publik för att kunna återanvändas: ämnesområdeshärledningen avgör om en
+    kolumn är ett mått eller ett attribut med samma typning som profileringen.
+    """
     if pd.api.types.is_bool_dtype(series):
         return _TEXT
     if pd.api.types.is_numeric_dtype(series):
@@ -30,6 +35,10 @@ def _kind(series: pd.Series) -> str:
     if pd.api.types.is_datetime64_any_dtype(series):
         return _DATETIME
     return _TEXT
+
+
+def _kind(series: pd.Series) -> str:
+    return column_kind(series)
 
 
 def _canonical(series: pd.Series) -> pd.Series:

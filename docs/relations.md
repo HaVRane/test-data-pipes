@@ -149,6 +149,17 @@ försvinner för att en koppling saknas.
 Saknade fliken en unik kolumn hade posten i stället fått en `row_key`, och
 entiteten hade döpts efter fliken.
 
+## Nästa steg: ämnesområden
+
+Kopplingen säger vilka rader som hör ihop. Nästa fråga är vad datan *betyder*:
+vilka tabeller som är fakta, vilka som är dimensioner och vilka kolumner som är
+mått. Det härleds ur specen och beskrivs i `docs/amnesomraden.md`.
+
+Skillnaden mot kopplingarna är värd att hålla i minnet. En koppling och en
+orphan-policy styr vad som skrivs ut, och måste därför bekräftas av en människa.
+Ett ämnesområde är en vy som inte skriver något tillbaka, och kan därför härledas
+helt automatiskt.
+
 ## Vad testerna bevakar
 
 - Att kommentarerna i specen överlever en skrivning.

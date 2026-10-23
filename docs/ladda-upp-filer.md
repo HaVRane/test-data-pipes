@@ -96,7 +96,7 @@ bygga fixtures och spec-poster; verktyget ovan behöver bara kolumnnamnen, inte
 innehållet. Är uppgifterna känsliga är det till och med bättre att beskriva
 strukturen än att ladda upp filen.
 
-## Webbapplikationen med fem flikar
+## Webbapplikationen med sex flikar
 
 Den enkla uppladdningssidan är ersatt av en liten applikation. Starta den med
 skriptet:
@@ -141,6 +141,9 @@ Flikar:
 - **Indatarelationer** — en översikt över datakällorna och nycklarna som binder
   dem samman. Varje ruta är en tabell (flik), pilarna visar föreslagna
   kopplingar.
+- **Ämnesområden** — fakta, dimensioner och mått härledda ur specen, med
+  konforma dimensioner och entiteter utanför varje område i egna tabeller. Se
+  `docs/amnesomraden.md`.
 - **Ändringslogg** — vad som ändrats sedan senast, med möjlighet att filtrera per
   händelse, slag (data, struktur, mottagning) och källa.
 

@@ -19,13 +19,14 @@ from webapp import (  # noqa: E402
 from fixtures import build_sample_sources, write_workbook
 
 
-def test_page_has_five_tabs_and_valid_markup():
+def test_page_has_six_tabs_and_valid_markup():
     assert "{{" not in PAGE and "}}" not in PAGE
     for tab in (
         "Anslut datakälla",
         "Indata",
         "Kolumner och koppling",
         "Indatarelationer",
+        "Ämnesområden",
         "Ändringslogg",
     ):
         assert tab in PAGE
