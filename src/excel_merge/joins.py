@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from excel_merge.profile import KeyComparison, compare_keys
+from excel_merge.profile import KeyComparison, column_stats, compare_keys
 
 # Ord som antyder att en kolumn är en identifierare. Längsta ordet först, så att
 # "nummer" prövas före "nr" när en rot ska skalas av.
@@ -77,6 +77,34 @@ def _name_hint(column: str) -> int:
     if looks_like_measure(column):
         return -25
     return 0
+
+
+def is_key_candidate(frame: pd.DataFrame, column: object) -> bool:
+    """Säger om en kolumn kan identifiera en rad i ``frame``.
+
+    Villkoret är att kolumnen är unik och saknar nollvärden *och* att namnet inte
+    antyder ett mått. Ett belopp eller ett datum är unikt av en slump i små data -
+    det gör det inte till en identifierare.
+
+    Den här funktionen är den enda platsen som avgör frågan. Registreringen,
+    kolumnrapporten, källkartan och inventeringsverktyget hämtar alla svaret här,
+    så att samma kolumn aldrig får två olika svar i samma applikation.
+    """
+    if looks_like_measure(str(column)):
+        return False
+    return column_stats(frame[column], name=str(column)).is_candidate_key
+
+
+def candidate_key_columns(frame: pd.DataFrame) -> list[str]:
+    """Kandidatnycklar i en tabell, identifierare först och sedan namnordning.
+
+    Rangordningen är deterministisk: kolumner vars namn antyder en identifierare
+    kommer före övriga, och inom varje grupp sorterar kolumnnamnet. Utan
+    rangordningen skulle valet falla på bokstavsordningen, och en kolumn som
+    ``befolkning_2025_12_31`` skulle gå före ``lanskod``.
+    """
+    found = [(0 if looks_like_identifier(str(c)) else 1, str(c)) for c in frame.columns if is_key_candidate(frame, c)]
+    return [name for _, name in sorted(found)]
 
 
 def _distinct_ratio(comparison: KeyComparison) -> float:

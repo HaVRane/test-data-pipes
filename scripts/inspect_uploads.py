@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from excel_merge.joins import is_key_candidate
 from excel_merge.profile import column_stats, format_comparison, discover_candidate_keys
 
 SPREADSHEET_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
@@ -43,7 +44,7 @@ def _slug(text: str) -> str:
 def describe_workbook(path: Path) -> list[tuple[str, pd.DataFrame]]:
     """Läs alla flikar i en arbetsbok utan att anta något om innehållet."""
     with pd.ExcelFile(path, engine="openpyxl") as book:
-        return [(name, book.parse(name)) for name in book.sheet_names]
+        return [(name, pd.read_excel(book, sheet_name=name)) for name in book.sheet_names]
 
 
 def suggest_source_entry(path: Path, sheet: str, frame: pd.DataFrame) -> str:
@@ -78,7 +79,7 @@ def report(directory: Path, reference: Path | None = None) -> int:
             print(f"\n  flik '{sheet}': {len(frame)} rader, {len(frame.columns)} kolumner")
             for column in frame.columns:
                 stats = column_stats(frame[column], name=str(column))
-                marker = "  <- möjlig nyckel" if stats.is_candidate_key else ""
+                marker = "  <- möjlig nyckel" if is_key_candidate(frame, column) else ""
                 print(
                     f"    {stats.name}: typ={stats.dtype}, distinkta={stats.distinct}, "
                     f"nollvärden={stats.nulls}{marker}"
