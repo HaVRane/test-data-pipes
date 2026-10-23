@@ -19,13 +19,15 @@ import pandas as pd
 
 from excel_merge.profile import KeyComparison, compare_keys
 
-# Ord som antyder att en kolumn är en identifierare.
-_ID_HINTS = ("id", "nr", "nummer", "kod", "code", "nyckel", "key", "beteckning")
+# Ord som antyder att en kolumn är en identifierare. Längsta ordet först, så att
+# "nummer" prövas före "nr" när en rot ska skalas av.
+IDENTIFIER_HINTS = ("nummer", "beteckning", "nyckel", "code", "kod", "key", "id", "nr")
 
 # Värden som antyder att kolumnen är ett mått eller en tidpunkt, inte en nyckel.
 _MEASURE_HINTS = (
-    "datum", "tidpunkt", "date", "time", "år", "ar", "belopp", "effekt", "antal",
-    "amount", "sum", "total", "price", "pris", "värde", "varde", "quantity", "kvantitet",
+    "datum", "tidpunkt", "tid", "date", "time", "år", "ar", "belopp", "effekt",
+    "antal", "amount", "sum", "total", "price", "pris", "värde", "varde",
+    "quantity", "kvantitet",
 )
 
 
@@ -38,6 +40,21 @@ def looks_like_measure(column: str) -> bool:
     """
     lowered = column.lower()
     return any(hint in lowered for hint in _MEASURE_HINTS)
+
+
+def looks_like_identifier(column: str) -> bool:
+    """Säger om kolumnnamnet antyder en identifierare.
+
+    Matchningen är på *delsträng*, inte på avgränsade ord. Det är avgörande för
+    svenska sammansättningar: ``Lanskod`` och ``Kundnummer`` innehåller "kod"
+    respektive "nummer" utan understreck emellan. En ordgräns hade missat dem
+    och låtit en måttkolumn vinna på bokstavsordning.
+
+    Priset är att en kolumn som ``Arbetskod`` också räknas som identifierare.
+    Det är en rimlig avvägning: heuristiken föreslår, en människa bekräftar.
+    """
+    lowered = column.lower()
+    return any(hint in lowered for hint in IDENTIFIER_HINTS)
 
 
 @dataclass(frozen=True)
@@ -55,10 +72,9 @@ class JoinCandidate:
 
 
 def _name_hint(column: str) -> int:
-    lowered = column.lower()
-    if any(hint in lowered for hint in _ID_HINTS):
+    if looks_like_identifier(column):
         return 15
-    if any(hint in lowered for hint in _MEASURE_HINTS):
+    if looks_like_measure(column):
         return -25
     return 0
 

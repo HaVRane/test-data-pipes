@@ -65,13 +65,17 @@ och vad du gör manuellt om registreringen inte räcker.
 
 ## Regler som inte får tummas på
 
-- **Gränsen för human in the loop går vid skrivning, inte vid läsning.**
-  Allt som kan ändra data - kopplingar, kardinalitet, orphaning-policy, poster i
-  specen - ska föreslås och bekräftas. Allt som bara läser och härleder (profiler,
-  körplan, ämnesområden, ämnesområdenas flik) får köras helt automatiskt. En
-  felaktig härledning förstör ingenting och syns i nästa körning; en felaktig
-  skrivning ändrar utdata. Flytta därför inte ett härlett steg över gränsen, och
-  låt inte ett skrivande steg passera utan bekräftelse.
+- **Gränsen går mellan kod och data, inte mellan läsning och skrivning.**
+  Plattformens *kod* - heuristiker, tester, dokumentation, skript - får ändras och
+  **mergas autonomt** när testerna är gröna. Det är plattformen vi bygger, och en
+  förbättrad heuristik är en förbättring av plattformen.
+  Hur ett *konkret dataset* kopplas ihop är plattformens utdata, inte ett beslut
+  som ska stämmas av i förväg. Maskinen föreslår nyckel, koppling och
+  kardinalitet; användaren granskar resultatet och återkommer med feedback om
+  plattformen gjorde fel. Stanna därför inte upp och fråga hur två tabeller ska
+  kopplas - bygg klart, visa vad plattformen kom fram till, låt användaren
+  invända. En felaktig koppling är en felaktig slutsats, inte en förstörd fil:
+  `validate`/`cardinality` fångar den, och nästa körning rättar den.
 - **Kardinalitet och orphaning-policy är affärsbeslut.** Föreslå dem, men
   beskriv dem som obekräftade. `validate`/`cardinality` är skyddsnätet som gör
   att en felaktig koppling går rött i stället för att tyst blåsa upp radantalet.
@@ -217,8 +221,9 @@ curl "http://127.0.0.1:12000/subjects?key=..."   # {"subjects": [...], "conforme
 
 Härledningen är regelbaserad och deterministisk, utan språkmodell. Den läser
 specen och skriver ingenting tillbaka. **Det är därför steget får köras utan
-human in the loop, medan kopplingar och orphan-policy inte får det:** gränsen går
-vid skrivning, inte vid läsning. En felaktig klassning förstör ingen data.
+human in the loop, medan kopplingar och orphan-policy granskas i efterhand av
+användaren:** gränsen går mellan kod och data. En felaktig klassning förstör
+ingen data, och en felaktig koppling syns i kartan och i nästa körning.
 
 Två regler är värda att känna till. En nyckel och en främmande nyckel blir
 aldrig mått, även när de är tal. Och oklassad är ett giltigt svar: en entitet
@@ -246,6 +251,12 @@ tvingas in i en roll.
 - Kopplingsförslag (`joins.rank_join_candidates`) väger unikhet och namnledtrådar
   tyngre än täckning. En datumkolumn med identiska värden över båda tabellerna
   får 100 % täckning men är inte en nyckel. Lita inte på täckning ensam.
+- Nyckelbedömningen matchar **delsträng**, inte avgränsat ord. Det är avsiktligt:
+  svenska kolumnnamn sätter ihop orden (`Lanskod`, `Kundnummer`, `Ordernr`). En
+  ordgränsad regel hade missat dem och låtit bokstavsordningen avgöra - i
+  `Länsinfo` blev `Befolkning_2025_12_31` nyckeln i stället för `Lanskod`.
+  `register.candidate_keys` och `joins.looks_like_identifier` delar den regeln;
+  ändra inte den ena utan den andra.
 - Ordningen i registreringen är inte valfri: kopplingen söks **före** egennyckeln.
   En tabell med både `supplier_id` och `customer_id` ska bli entiteten `supplier`
   med en koppling till `customer`. Söks egennyckeln först blir `supplier_id` en

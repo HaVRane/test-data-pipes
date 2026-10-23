@@ -4,20 +4,21 @@ Relationsspecen beskriver *vad* datan handlar om: entiteter, nycklar och hur de
 hänger ihop. Den beskriver inte *hur datan ska läsas*: vilka tabeller som är
 fakta, vilka som är dimensioner och vilka kolumner som är mått.
 
-Det steget är härlett. Den här sidan beskriver hur, och varför det får ske utan
-att någon granskar resultatet först.
+Det steget är härlett. Den här sidan beskriver hur, och varför det kan ske utan
+att någon godkänner det i förväg.
 
 ## Varför det kan köras utan human in the loop
 
-Kardinalitet och orphaning-policy är affärsbeslut som måste bekräftas, eftersom
-de styr vad som skrivs ut. En felaktig sådan ändrar data.
+Ämnesområdena är en **vy** över specen. De skriver ingenting tillbaka. En
+felaktig klassning förstör ingen data och gör ingen pipeline fel - den visar bara
+en rad på fel ställe, och nästa körning visar rätt igen.
 
-Ämnesområdena är något annat: en **vy** över specen. De skriver ingenting
-tillbaka. En felaktig klassning förstör ingen data och gör ingen pipeline fel -
-den visar bara en rad på fel ställe, och nästa körning visar rätt igen.
-
-Gränsen går alltså vid skrivning, inte vid läsning. Det är därför det här steget
-kan vara helt automatiskt medan kopplingarna inte kan vara det.
+Kopplingar och orphan-policy skriver däremot till specen, och de styrs av
+affärsregler som plattformen inte kan känna. Därför är de *förslag*: de märks som
+obekräftade, och användaren granskar resultatet i efterhand och hör av sig om
+plattformen drog fel slutsats. Skillnaden är inte att det ena kräver ett
+godkännande i förväg och det andra inte - det är att en koppling är en slutsats
+om verksamheten, medan ett ämnesområde bara är en läsning av specen.
 
 ## Vad som härleds
 
