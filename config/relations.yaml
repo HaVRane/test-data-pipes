@@ -1,0 +1,57 @@
+# Relationsspec: beskriver vad datamängderna handlar om och hur de hänger ihop.
+#
+# Detta är kontraktet. En agent får föreslå ändringar här (underlag via
+# `python -m excel_merge.cli profile`), men ändringen ska granskas som en diff
+# och testerna avgör om den är rimlig.
+
+version: 1
+
+# Entiteter = de begrepp datan handlar om. Nyckeln identifierar en rad.
+entities:
+  customer:
+    key: customer_id
+    description: En kund. En rad per kund.
+  order:
+    key: order_id
+    description: En order. Flera ordrar kan höra till samma kund.
+
+# Källor = konkreta flikar i konkreta filer som tillhandahåller en entitet.
+sources:
+  - name: customers
+    path: ../data/customers.xlsx
+    sheet: Customers
+    entity: customer
+    dtypes:
+      customer_id: int
+    columns:
+      customer_id: customer_id
+      name: customer_name
+      segment: segment
+
+  - name: orders
+    path: ../data/orders.xlsx
+    sheet: Orders
+    entity: order
+    dtypes:
+      customer_id: int
+      amount: float
+    columns:
+      order_id: order_id
+      customer_id: customer_id
+      amount: order_amount
+      order_date: order_date
+    relationships:
+      # Ordern pekar på en kund. Detta är länken mellan tabellerna.
+      - to: customer
+        via: customer_id
+        cardinality: many_to_one
+        orphans: keep   # keep | drop | flag - vad gör vi med order utan kund?
+
+# Byggen = vilka utdata som ska produceras ur entiteterna.
+builds:
+  - name: customer_orders
+    base: customer
+    include: [order]
+    output: ../out/merged.xlsx
+    sheet: Merged
+    columns: [order_id, customer_id, customer_name, segment, order_amount, order_date]

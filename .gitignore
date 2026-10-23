@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+out/
+
+# Ändringsloggens tillstånd byggs lokalt.
+state/
+
+# Uppladdade datafiler versionshanteras inte, men mottagningskatalogen finns kvar.
+data/*.xlsx
+data/*.xls
+data/*.xlsm
+data/inbox/*
+!data/inbox/.gitkeep
+!data/inbox/README.md
+
+.agent_tmp/
