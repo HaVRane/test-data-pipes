@@ -70,8 +70,15 @@ bevakar att kontraktet fortfarande betyder något.
 ## Nycklar som maskinen får och inte får bestämma
 
 Maskinen får bestämma **vilken kolumn som identifierar en rad**: en kolumn som är
-unik och saknar nollvärden duger, och ett namn som slutar på `_id`, `_nr` eller
-`_kod` väger tyngre än andra. Det är en egenskap hos datat och går att avgöra.
+unik och saknar nollvärden duger, och ett namn som *innehåller* `id`, `nr`,
+`nummer`, `kod`, `code`, `nyckel` eller `beteckning` väger tyngre än andra. Det
+är en egenskap hos datat och går att avgöra.
+
+Matchningen sker på delsträng, inte på avgränsat ord, eftersom svenska
+kolumnnamn ofta sätter ihop orden: `Lanskod`, `Kundnummer`, `Ordernr`. En regel
+som krävde understreck före ändelsen hade missat dem, och då hade
+bokstavsordningen avgjort - i en tabell som `Länsinfo` hade befolkningssiffran
+blivit nyckeln. Se `joins.looks_like_identifier` och `register.candidate_keys`.
 
 Maskinen får inte bestämma **kardinalitet**. Att två kolumner överlappar säger
 inget om affärsreglerna: en kund kan ha flera ordrar även om just detta utdrag

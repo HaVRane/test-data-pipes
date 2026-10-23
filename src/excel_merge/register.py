@@ -23,7 +23,6 @@ den ändringen loggas som en strukturell ändring.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
@@ -32,7 +31,12 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from excel_merge.io import SourceReadError, read_raw_sheet
-from excel_merge.joins import looks_like_measure, rank_join_candidates
+from excel_merge.joins import (
+    IDENTIFIER_HINTS,
+    looks_like_identifier,
+    looks_like_measure,
+    rank_join_candidates,
+)
 from excel_merge.profile import column_stats
 from excel_merge.relations import RelationSpecError, load_relation_spec
 
@@ -100,6 +104,12 @@ def candidate_keys(frame, mapping: dict[str, str]) -> list[str]:
 
     Kolumner vars namn antyder ett mått eller en tidpunkt väljs bort - ett belopp
     kan vara unikt av en slump utan att identifiera en rad.
+
+    En kolumn vars namn antyder en identifierare rangordnas först. Bedömningen
+    görs med samma delsträngslogik som kopplingsrangordningen använder, så att
+    svenska sammansättningar som ``Lanskod`` och ``Kundnummer`` räknas som
+    identifierare. Utan den vinner en måttkolumn på bokstavsordning: i
+    ``Länsinfo`` står ``Befolkning_2025_12_31`` före ``Lanskod``.
     """
     found: list[tuple[int, str]] = []
     for original, output in mapping.items():
@@ -108,14 +118,26 @@ def candidate_keys(frame, mapping: dict[str, str]) -> list[str]:
         stats = column_stats(frame[original], name=output)
         if not stats.is_candidate_key:
             continue
-        priority = 0 if re.search(r"(^|_)(id|nr|nummer|kod|code|key)$", output) else 1
+        priority = 0 if looks_like_identifier(str(output)) else 1
         found.append((priority, output))
     return [name for _, name in sorted(found)]
 
 
 def entity_of_key(key: str) -> str:
-    """Entitetsnamnet ur nyckelns rot: ``supplier_id`` -> ``supplier``."""
-    return slug(re.sub(r"_(id|nr|nummer|kod|code|key)$", "", key) or key)
+    """Entitetsnamnet ur nyckelns rot: ``supplier_id`` -> ``supplier``, ``lanskod`` -> ``lans``.
+
+    Ändelsen kan vara avgränsad med understreck eller sitta ihop med roten.
+    Sammansättningen är vanlig i svenska kolumnnamn, och utan det andra fallet
+    hade entiteten hetat ``lanskod`` i stället för ``lans``.
+    """
+    lowered = key.lower()
+    for hint in IDENTIFIER_HINTS:
+        if lowered.endswith("_" + hint) and len(key) > len(hint) + 1:
+            return slug(key[: -(len(hint) + 1)])
+    for hint in IDENTIFIER_HINTS:
+        if lowered.endswith(hint) and len(key) > len(hint):
+            return slug(key[: -len(hint)])
+    return slug(key)
 
 
 def _match_existing_entity(spec, frame, mapping: dict[str, str]):

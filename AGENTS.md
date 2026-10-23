@@ -246,6 +246,12 @@ tvingas in i en roll.
 - Kopplingsförslag (`joins.rank_join_candidates`) väger unikhet och namnledtrådar
   tyngre än täckning. En datumkolumn med identiska värden över båda tabellerna
   får 100 % täckning men är inte en nyckel. Lita inte på täckning ensam.
+- Nyckelbedömningen matchar **delsträng**, inte avgränsat ord. Det är avsiktligt:
+  svenska kolumnnamn sätter ihop orden (`Lanskod`, `Kundnummer`, `Ordernr`). En
+  ordgränsad regel hade missat dem och låtit bokstavsordningen avgöra - i
+  `Länsinfo` blev `Befolkning_2025_12_31` nyckeln i stället för `Lanskod`.
+  `register.candidate_keys` och `joins.looks_like_identifier` delar den regeln;
+  ändra inte den ena utan den andra.
 - Ordningen i registreringen är inte valfri: kopplingen söks **före** egennyckeln.
   En tabell med både `supplier_id` och `customer_id` ska bli entiteten `supplier`
   med en koppling till `customer`. Söks egennyckeln först blir `supplier_id` en

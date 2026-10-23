@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pandas as pd
 
-from excel_merge.joins import best_join, rank_join_candidates, score_candidate
+from excel_merge.joins import (
+    best_join,
+    looks_like_identifier,
+    looks_like_measure,
+    rank_join_candidates,
+    score_candidate,
+)
 from excel_merge.profile import compare_keys
 
 
@@ -15,6 +21,54 @@ def test_unique_id_column_is_recommended():
     assert best is not None
     assert best.is_recommended
     assert best.left_column == "kund_id"
+
+
+def test_compound_swedish_words_are_identifiers():
+    """Svenska sammansättningar ska kännas igen utan understreck.
+
+    ``Lanskod`` och ``Kundnummer`` är vanliga kolumnnamn i svensk data. En
+    matchning som kräver ordgräns missar dem och låter en måttkolumn vinna.
+    """
+    assert looks_like_identifier("Lanskod")
+    assert looks_like_identifier("Kundnummer")
+    assert looks_like_identifier("Ordernr")
+    assert looks_like_identifier("customer_id")
+    # Ett namn är ingen identifierare, och ett mått är det inte heller.
+    assert not looks_like_identifier("Lansnamn")
+    assert not looks_like_identifier("Befolkning_2025_12_31")
+    assert not looks_like_identifier("belopp")
+
+
+def test_time_columns_are_measures_not_identifiers():
+    """En tidskolumn får inte bli nyckel, trots att "tid" innehåller "id".
+
+    Delsträngsmatchningen för "id" träffar svenska ord som ``Tid`` och
+    ``Aktivitetstid``. Utan måttfiltret hade en sådan kolumn fått högst prioritet
+    och kunnat bli entitetsnyckel - samma slags tysta fel som Länsinfo-buggen.
+    """
+    assert looks_like_measure("Tid")
+    assert looks_like_measure("Aktivitetstid")
+    assert looks_like_measure("Tidszon")
+    # Filtret för mått avgör saken, även om formen ser ut som en identifierare.
+    assert looks_like_identifier("Aktivitetstid")
+
+
+def test_time_column_is_excluded_from_candidate_keys():
+    from excel_merge.register import _column_mapping, candidate_keys
+
+    frame = pd.DataFrame({"Aktivitetstid": ["08:00", "09:00", "10:00"], "Kundnr": [1, 2, 3]})
+    keys = candidate_keys(frame, _column_mapping(frame))
+    assert keys == ["kundnr"], "tidskolumnen ska inte kunna bli nyckel"
+
+
+def test_measure_and_identifier_are_separate_questions():
+    """En kolumn kan vara både ett mått och bära en identitetsändelse.
+
+    Frågorna besvaras var för sig: ``Arbetskod`` är en identifierare till formen,
+    men innehållet kan vara ett mått. Filtret för mått avgör det senare.
+    """
+    assert looks_like_identifier("Arbetskod")
+    assert looks_like_measure("Arbetskod")
 
 
 def test_shared_date_column_is_downgraded():

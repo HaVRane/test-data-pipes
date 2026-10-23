@@ -289,6 +289,51 @@ def test_atomic_write_leaves_no_temp_file(project):
     assert list((project / "config").glob("*.tmp")) == []
 
 
+def test_swedish_compound_identifier_wins_over_a_measure_column(project):
+    """Sammansatta svenska kolumnnamn ska räknas som identifierare.
+
+    Regressionstest för Länsinfo: kolumnerna är ``Lanskod``, ``Lansnamn`` och
+    ``Befolkning_2025_12_31``. Alla tre är unika, så unikheten avgör inte. En
+    ordgränsad matchning såg varken "kod" i ``Lanskod`` eller "namn" i
+    ``Lansnamn``, och då avgjorde bokstavsordningen - befolkningssiffran blev
+    nyckeln. Nyckeln måste bli länskoden.
+    """
+    new = _write(project / "inbox" / "Länsinfo.xlsx", "Blad1", pd.DataFrame(
+        {
+            "Lanskod": [1, 3, 4],
+            "Lansnamn": ["Stockholms län", "Uppsala län", "Södermanlands län"],
+            "Befolkning_2025_12_31": [2486251, 410575, 300440],
+        }
+    ))
+    reg = register_source(_spec(project), new, "Blad1")
+    assert reg.key == "lanskod", "länskoden ska vara nyckeln, inte befolkningssiffran"
+    assert reg.entity == "lans"
+    # Entiteten ska bära länskoden som nyckel, inte befolkningssiffran.
+    spec = load_relation_spec(_spec(project))
+    assert spec.entities["lans"].key == "lanskod"
+
+
+def test_compound_key_entity_root_is_stripped(project):
+    """Entitetsnamnet ska vara roten, även när ändelsen sitter ihop med den."""
+    from excel_merge.register import entity_of_key
+
+    assert entity_of_key("lanskod") == "lans"
+    assert entity_of_key("kundnummer") == "kund"
+    assert entity_of_key("supplier_id") == "supplier"
+    assert entity_of_key("region_code") == "region"
+    # En kolumn som inte slutar på en identitetsändelse behåller hela namnet.
+    assert entity_of_key("lansnamn") == "lansnamn"
+
+
+def test_measure_column_does_not_become_the_key(project):
+    """En måttkolumn får inte bli nyckel bara för att den är unik."""
+    new = _write(project / "inbox" / "forsaljning.xlsx", "Forsaljning", pd.DataFrame(
+        {"butikskod": [1, 2, 3], "belopp": [100, 200, 300]}
+    ))
+    reg = register_source(_spec(project), new, "Forsaljning")
+    assert reg.key == "butikskod"
+
+
 def test_slug_normalises_names():
     assert slug("Customer ID") == "customer_id"
     assert slug("Prövningsgrupp ID") == "prövningsgrupp_id"
